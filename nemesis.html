@@ -8,7 +8,8 @@
   html,body{margin:0;padding:0;background:#050508;font-family:"Segoe UI",system-ui,sans-serif;color:#e8e8f0;
     display:flex;flex-direction:column;align-items:center;min-height:100vh;user-select:none;overscroll-behavior:none;
     -webkit-tap-highlight-color:transparent;}
-  canvas{background:#08080e;border-radius:8px;box-shadow:0 0 50px rgba(255,40,70,.25);max-width:96vw;max-height:62vh;margin-top:10px;cursor:crosshair;touch-action:none;}
+  .cv-wrap{position:relative;display:inline-block;margin-top:10px;}
+  canvas{background:#08080e;border-radius:8px;box-shadow:0 0 50px rgba(255,40,70,.25);max-width:96vw;max-height:62vh;cursor:crosshair;touch-action:none;display:block;}
   #back{position:fixed;top:10px;left:12px;font-size:12px;color:#888;opacity:.6;text-decoration:none;z-index:5;}
   #back:hover{opacity:1;}
   .keys{font-size:12px;opacity:.5;padding:8px;text-align:center;}
@@ -16,25 +17,36 @@
     align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
   @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
   #tc{display:none;width:960px;max-width:96vw;flex-direction:column;align-items:center;gap:8px;padding:6px 4px;box-sizing:border-box;}
-  @media (pointer:coarse){ #tc{display:flex;} .keys{display:none;} }
+  @media (pointer:coarse){
+    #tc{display:flex;} .keys{display:none;}
+    .cv-wrap{margin-top:2px;}
+    canvas{max-height:94vh;}
+    #tc{position:absolute;left:0;right:0;bottom:0;z-index:3;width:auto;max-width:none;
+      pointer-events:none;padding:8px 10px calc(8px + env(safe-area-inset-bottom));}
+    #tc>*{pointer-events:none;}
+    #tc button,#tc .tc-hint{pointer-events:auto;}
+    .tc-hint{position:absolute;left:12px;bottom:10px;font-size:9px;opacity:.55;background:none;padding:0;}
+    .tc-row{position:static;}
+  }
   .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
     user-select:none;touch-action:none;cursor:pointer;outline:none;
-    display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
-    background:#1a1420;color:#ff9fb8;border:2px solid rgba(255,47,109,.4);border-radius:12px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
-  .tc-btn.active{background:#ff2f6d;color:#fff;transform:translateY(2px);box-shadow:none;}
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-family:inherit;
+    background:rgba(26,20,32,.35);color:rgba(255,159,184,.85);border:2px solid rgba(255,47,109,.4);
+    border-radius:12px;backdrop-filter:blur(1px);}
+  .tc-btn.active{background:rgba(255,47,109,.55);color:#fff;}
   .tc-btn:focus{outline:none;}
-  .tc-row{display:none;gap:16px;align-items:center;}
+  .tc-row{display:none;gap:16px;align-items:center;width:100%;justify-content:center;}
   .tc-row.show{display:flex;}
   .tc-genbtn{width:110px;height:46px;font-size:13px;}
   .tc-hint{font-size:12px;opacity:.6;}
-  #tcDash{width:88px;height:56px;font-size:14px;}
+  #tcDash{width:78px;height:58px;font-size:13px;margin-left:auto;}
 </style>
 </head>
 <body>
 <div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
 <a id="back" href="index.html">← アーケードに戻る</a>
+<div class="cv-wrap">
 <canvas id="cv" width="960" height="600"></canvas>
-<div class="keys">WASD:移動　マウス:照準　クリック長押し:射撃　SPACE/SHIFT:緊急回避(無敵)　タイトルで←→:世代選択(過去世代と再戦可)　N:記憶消去　ESC:撤退</div>
 <div id="tc">
   <div class="tc-row" id="tcGenRow">
     <button class="tc-btn tc-genbtn" id="tcGenL">◀ 世代</button>
@@ -45,6 +57,8 @@
     <button class="tc-btn" id="tcDash">DASH</button>
   </div>
 </div>
+</div>
+<div class="keys">WASD:移動　マウス:照準　クリック長押し:射撃　SPACE/SHIFT:緊急回避(無敵)　タイトルで←→:世代選択(過去世代と再戦可)　N:記憶消去　ESC:撤退</div>
 <script>
 "use strict";
 const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
@@ -150,8 +164,9 @@ addEventListener("keydown",e=>{
 });
 addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;});
 
-/* ---------- タッチ操作(左=移動スティック、右=照準+発射) ---------- */
+/* ---------- タッチ操作(左=移動スティック、右=照準スティック+発射) ---------- */
 const activePointers=new Map(); // pointerId -> {role,originX,originY,dx,dy}
+let touchAimAngle=-Math.PI/2; // 照準スティックの向き(ドラッグの相対方向。絶対座標には依存しない)
 function cvPos(e){
   const rc=cv.getBoundingClientRect();
   return {x:(e.clientX-rc.left)*(W/rc.width), y:(e.clientY-rc.top)*(H/rc.height)};
@@ -166,8 +181,8 @@ cv.addEventListener("pointerdown",e=>{
     if(pos.x<W*0.42){
       activePointers.set(e.pointerId,{role:"move",originX:pos.x,originY:pos.y,dx:0,dy:0});
     }else{
-      activePointers.set(e.pointerId,{role:"aim"});
-      mouse.x=pos.x; mouse.y=pos.y; mouse.down=true;
+      activePointers.set(e.pointerId,{role:"aim",originX:pos.x,originY:pos.y,dx:0,dy:0});
+      mouse.down=true;
     }
   }else{
     mouse.x=pos.x; mouse.y=pos.y; mouse.down=true;
@@ -178,16 +193,18 @@ cv.addEventListener("pointermove",e=>{
   if(e.pointerType!=="touch"){ mouse.x=pos.x; mouse.y=pos.y; return; }
   const info=activePointers.get(e.pointerId);
   if(!info) return;
+  let dx=pos.x-info.originX, dy=pos.y-info.originY;
+  const dist=Math.hypot(dx,dy), max=46;
+  if(dist>max){ dx=dx/dist*max; dy=dy/dist*max; }
+  info.dx=dx; info.dy=dy;
   if(info.role==="move"){
-    let dx=pos.x-info.originX, dy=pos.y-info.originY;
-    const dist=Math.hypot(dx,dy), max=46;
-    if(dist>max){ dx=dx/dist*max; dy=dy/dist*max; }
-    info.dx=dx; info.dy=dy;
     const dead=10;
     keys["a"]=dx<-dead; keys["d"]=dx>dead;
     keys["w"]=dy<-dead; keys["s"]=dy>dead;
   }else{
-    mouse.x=pos.x; mouse.y=pos.y;
+    // 照準はドラッグの「相対方向」で決める(タッチ位置そのものではない)。
+    // これによりプレイヤーがどこにいても、左にも右にも自在に狙える。
+    if(dist>8) touchAimAngle=Math.atan2(dy,dx);
   }
 });
 function releasePointer(e){
@@ -283,6 +300,14 @@ function update(){
   frame++;
   if(state!=="battle")return;
   battleFrames++;
+
+  // タッチ照準中は、常に現在のプレイヤー位置+ドラッグ方向で仮想マウス位置を再計算する
+  for(const [,info] of activePointers){
+    if(info.role==="aim"){
+      mouse.x=player.x+Math.cos(touchAimAngle)*100;
+      mouse.y=player.y+Math.sin(touchAimAngle)*100;
+    }
+  }
 
   /* --- プレイヤー --- */
   const ax=(keys["d"]?1:0)-(keys["a"]?1:0), ay=(keys["s"]?1:0)-(keys["w"]?1:0);
@@ -622,13 +647,13 @@ function draw(){
   ctx.fillStyle="#4df0ff";
   ctx.beginPath();ctx.arc(player.x+Math.cos(aim)*8,player.y+Math.sin(aim)*8,3.5,0,7);ctx.fill();
   ctx.restore();
-  // タッチ移動スティックの可視化
+  // タッチ操作スティックの可視化(移動=白、照準=赤)
   for(const [,info] of activePointers){
-    if(info.role!=="move")continue;
+    const col=info.role==="aim"?"255,47,109":"255,255,255";
     ctx.save();
-    ctx.strokeStyle="rgba(255,255,255,0.35)"; ctx.lineWidth=2;
+    ctx.strokeStyle=`rgba(${col},0.35)`; ctx.lineWidth=2;
     ctx.beginPath();ctx.arc(info.originX,info.originY,46,0,7);ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,0.55)";
+    ctx.fillStyle=`rgba(${col},0.55)`;
     ctx.beginPath();ctx.arc(info.originX+info.dx,info.originY+info.dy,18,0,7);ctx.fill();
     ctx.restore();
   }

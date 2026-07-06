@@ -23,17 +23,21 @@
   #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:8px;padding:4px 4px 2px;box-sizing:border-box;}
   @media (pointer:coarse){
     #tc{display:flex;} .keys{display:none;}
-    canvas{max-height:64vh;}
+    canvas{max-height:94vh;}
     #hud{position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;width:auto;
-      gap:10px;padding:4px 8px;font-size:10px;border-radius:8px 8px 0 0;
-      background:linear-gradient(rgba(0,0,0,.6),rgba(0,0,0,0));}
-    .title{font-size:11px;}
+      gap:10px;padding:3px 8px;font-size:8px;border-radius:8px 8px 0 0;
+      background:linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,0));}
+    .title{font-size:9px;}
+    #tc{position:absolute;left:0;right:0;bottom:0;z-index:3;width:auto;max-width:none;
+      pointer-events:none;padding:8px 10px calc(8px + env(safe-area-inset-bottom));}
+    #tc>*{pointer-events:auto;}
   }
   .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
     user-select:none;touch-action:none;cursor:pointer;outline:none;
-    display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
-    background:#02201c;color:#9fe8dd;border:2px solid rgba(56,232,200,.35);border-radius:10px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
-  .tc-btn.active{background:#38e8c8;color:#012;transform:translateY(2px);box-shadow:none;}
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-family:inherit;
+    background:rgba(2,32,28,.35);color:rgba(159,232,221,.85);border:2px solid rgba(56,232,200,.35);
+    border-radius:10px;backdrop-filter:blur(1px);}
+  .tc-btn.active{background:rgba(56,232,200,.55);color:#012;}
   .tc-btn:focus{outline:none;}
   .tc-dpad{display:grid;grid-template-columns:repeat(3,36px);grid-template-rows:repeat(3,36px);gap:3px;}
   .tc-dpad .tc-btn{font-size:15px;}
@@ -54,19 +58,19 @@
     <div id="clock">0:00</div>
   </div>
   <canvas id="cv" width="960" height="600"></canvas>
+  <div id="tc">
+    <div class="tc-dpad">
+      <div></div><button class="tc-btn" id="tcUp">▲</button><div></div>
+      <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
+      <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
+    </div>
+    <div class="tc-misc">
+      <button class="tc-btn" id="tcEsc">≡</button>
+    </div>
+    <button class="tc-btn" id="tcPing">PING</button>
+  </div>
 </div>
 <div class="keys">WASD/矢印:泳ぐ　SPACE/クリック:ソナー発信　ESC:深度選択へ戻る　……だが、音は「アレ」にも届く</div>
-<div id="tc">
-  <div class="tc-dpad">
-    <div></div><button class="tc-btn" id="tcUp">▲</button><div></div>
-    <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
-    <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
-  </div>
-  <div class="tc-misc">
-    <button class="tc-btn" id="tcEsc">≡</button>
-  </div>
-  <button class="tc-btn" id="tcPing">PING</button>
-</div>
 <script>
 "use strict";
 const cv=document.getElementById("cv"), ctx=cv.getContext("2d");

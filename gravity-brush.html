@@ -35,30 +35,35 @@
   #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:8px;padding:4px 4px 2px;box-sizing:border-box;}
   @media (pointer:coarse){
     #tc{display:flex;} .keys{display:none;}
-    canvas{max-height:50vh;}
+    canvas{max-height:80vh;}
     #hud{position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;width:auto;
-      gap:8px;padding:4px 8px;font-size:11px;border-radius:8px 8px 0 0;
-      background:linear-gradient(rgba(7,7,15,.6),rgba(7,7,15,0));}
-    .title{font-size:12px;}
-    .lv{font-size:10px;}
-    #time{font-size:12px;min-width:50px;}
-    #best{font-size:9px;min-width:60px;}
-    #hint{position:absolute;top:22px;left:0;right:0;z-index:2;pointer-events:none;width:auto;
-      font-size:10px;line-height:1.35;padding:2px 8px;box-sizing:border-box;min-height:0;
-      max-height:2.8em;overflow:hidden;background:rgba(7,7,15,.45);color:#cfd6ff;opacity:1;}
+      gap:8px;padding:3px 8px;font-size:9px;border-radius:8px 8px 0 0;
+      background:linear-gradient(rgba(7,7,15,.32),rgba(7,7,15,0));}
+    .title{font-size:10px;}
+    .lv{font-size:8px;}
+    #time{font-size:10px;min-width:40px;color:rgba(207,214,255,.8);}
+    #best{font-size:8px;min-width:50px;}
+    #hint{position:absolute;top:15px;left:0;right:0;z-index:2;pointer-events:none;width:auto;
+      font-size:9px;line-height:1.3;padding:1px 8px;box-sizing:border-box;min-height:0;
+      background:rgba(7,7,15,.22);color:rgba(207,214,255,.75);opacity:1;font-weight:400;}
+    #hint b{font-weight:600;}
+    #tc{position:absolute;left:0;right:0;bottom:0;z-index:3;width:auto;max-width:none;
+      pointer-events:none;padding:8px 10px calc(8px + env(safe-area-inset-bottom));}
+    #tc>*{pointer-events:auto;}
   }
   .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
     user-select:none;touch-action:none;cursor:pointer;outline:none;
-    display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
-    background:#12122a;color:#cfd6ff;border:2px solid rgba(255,255,255,.15);border-radius:10px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
-  .tc-btn.active{background:#19e6ff;color:#07070f;transform:translateY(2px);box-shadow:none;}
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-family:inherit;
+    background:rgba(18,18,42,.35);color:rgba(207,214,255,.85);border:2px solid rgba(255,255,255,.15);
+    border-radius:10px;backdrop-filter:blur(1px);}
+  .tc-btn.active{background:rgba(25,230,255,.55);color:#07070f;}
   .tc-btn:focus{outline:none;}
   .tc-dpad{display:grid;grid-template-columns:repeat(3,36px);grid-template-rows:repeat(3,36px);gap:3px;}
   .tc-dpad .tc-btn{font-size:15px;}
   .tc-jump{width:70px;height:48px;font-size:13px;}
   .tc-misc{display:flex;gap:6px;}
   .tc-misc .tc-btn{width:38px;height:38px;font-size:11px;}
-  #tcErase.active{background:#ff2fd6;color:#07070f;}
+  #tcErase.active{background:rgba(255,47,214,.55);color:#07070f;}
 </style>
 </head>
 <body>
@@ -73,25 +78,25 @@
   </div>
   <div id="hint"></div>
   <canvas id="cv" width="960" height="544"></canvas>
+  <div id="tc">
+    <div class="tc-dpad">
+      <div></div><button class="tc-btn" id="tcUp">▲</button><div></div>
+      <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
+      <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
+    </div>
+    <div class="tc-misc">
+      <button class="tc-btn" id="tcErase">消</button>
+      <button class="tc-btn" id="tcR">R</button>
+      <button class="tc-btn" id="tcEsc">≡</button>
+    </div>
+    <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
+  </div>
 </div>
 <div id="paletteRow">
   <div id="paintWrap"><div id="paintBar"></div></div>
   <div id="palette"></div>
 </div>
 <div class="keys">WASD/矢印:移動　SPACE:ジャンプ　クリック:壁を塗る(近くの壁のみ)　右クリック:消す　1〜4:色選択(ホイールでも)　R:リスタート　ESC:ステージ選択</div>
-<div id="tc">
-  <div class="tc-dpad">
-    <div></div><button class="tc-btn" id="tcUp">▲</button><div></div>
-    <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
-    <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
-  </div>
-  <div class="tc-misc">
-    <button class="tc-btn" id="tcErase">消</button>
-    <button class="tc-btn" id="tcR">R</button>
-    <button class="tc-btn" id="tcEsc">≡</button>
-  </div>
-  <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
-</div>
 <script>
 "use strict";
 const TILE=32, COLS=30, ROWS=17, PAINT_RANGE=230;
