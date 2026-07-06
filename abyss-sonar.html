@@ -12,8 +12,8 @@
   .title{font-weight:800;letter-spacing:3px;font-size:17px;color:#38e8c8;text-shadow:0 0 12px rgba(56,232,200,.6);}
   #pearls{color:#ffd9fa;}
   #hud .sp{flex:1;}
-  canvas{background:#010204;border-radius:8px;box-shadow:0 0 60px rgba(20,80,90,.35);max-width:96vw;max-height:58vh;touch-action:none;}
-  @media (pointer:coarse) and (orientation:landscape){ canvas{max-height:46vh;} }
+  .cv-wrap{position:relative;display:inline-block;}
+  canvas{background:#010204;border-radius:8px;box-shadow:0 0 60px rgba(20,80,90,.35);max-width:96vw;max-height:58vh;touch-action:none;display:block;}
   #back{position:fixed;top:10px;left:12px;font-size:12px;color:#4a7;opacity:.5;text-decoration:none;}
   #back:hover{opacity:1;}
   .keys{font-size:12px;opacity:.45;padding:8px;text-align:center;}
@@ -21,11 +21,20 @@
     align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
   @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
   #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:8px;padding:4px 4px 2px;box-sizing:border-box;}
-  @media (pointer:coarse){ #tc{display:flex;} .keys{display:none;} }
-  .tc-btn{-webkit-tap-highlight-color:transparent;user-select:none;touch-action:none;cursor:pointer;
+  @media (pointer:coarse){
+    #tc{display:flex;} .keys{display:none;}
+    canvas{max-height:64vh;}
+    #hud{position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;width:auto;
+      gap:10px;padding:4px 8px;font-size:10px;border-radius:8px 8px 0 0;
+      background:linear-gradient(rgba(0,0,0,.6),rgba(0,0,0,0));}
+    .title{font-size:11px;}
+  }
+  .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
+    user-select:none;touch-action:none;cursor:pointer;outline:none;
     display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
     background:#02201c;color:#9fe8dd;border:2px solid rgba(56,232,200,.35);border-radius:10px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
   .tc-btn.active{background:#38e8c8;color:#012;transform:translateY(2px);box-shadow:none;}
+  .tc-btn:focus{outline:none;}
   .tc-dpad{display:grid;grid-template-columns:repeat(3,36px);grid-template-rows:repeat(3,36px);gap:3px;}
   .tc-dpad .tc-btn{font-size:15px;}
   #tcPing{width:70px;height:48px;font-size:12px;}
@@ -36,14 +45,16 @@
 <body>
 <div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
 <a id="back" href="index.html">← アーケードに戻る</a>
-<div id="hud">
-  <div class="title">ABYSS SONAR</div>
-  <div id="depth">DEPTH 1</div>
-  <div id="pearls">真珠 0 / 3</div>
-  <div class="sp"></div>
-  <div id="clock">0:00</div>
+<div class="cv-wrap">
+  <div id="hud">
+    <div class="title">ABYSS SONAR</div>
+    <div id="depth">DEPTH 1</div>
+    <div id="pearls">真珠 0 / 3</div>
+    <div class="sp"></div>
+    <div id="clock">0:00</div>
+  </div>
+  <canvas id="cv" width="960" height="600"></canvas>
 </div>
-<canvas id="cv" width="960" height="600"></canvas>
 <div class="keys">WASD/矢印:泳ぐ　SPACE/クリック:ソナー発信　ESC:深度選択へ戻る　……だが、音は「アレ」にも届く</div>
 <div id="tc">
   <div class="tc-dpad">
@@ -51,10 +62,10 @@
     <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
     <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
   </div>
-  <button class="tc-btn" id="tcPing">PING</button>
   <div class="tc-misc">
     <button class="tc-btn" id="tcEsc">≡</button>
   </div>
+  <button class="tc-btn" id="tcPing">PING</button>
 </div>
 <script>
 "use strict";

@@ -14,17 +14,18 @@
   .lv{font-size:13px;opacity:.75;}
   #time{font-variant-numeric:tabular-nums;font-size:15px;min-width:90px;}
   #best{font-size:12px;opacity:.6;min-width:110px;}
+  #paletteRow{width:960px;max-width:96vw;display:flex;align-items:center;gap:10px;padding:2px 4px 6px;box-sizing:border-box;}
   #paintWrap{flex:1;height:10px;background:#191930;border-radius:5px;overflow:hidden;}
   #paintBar{height:100%;width:100%;background:linear-gradient(90deg,#19e6ff,#ff2fd6,#8aff2f,#ffa51e);}
   #palette{display:flex;gap:6px;}
   .chip{width:34px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;
     font-size:13px;font-weight:700;color:#07070f;cursor:pointer;opacity:.45;border:2px solid transparent;
-    touch-action:none;-webkit-tap-highlight-color:transparent;}
+    touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;}
   .chip.sel{opacity:1;border-color:#fff;box-shadow:0 0 12px currentColor;}
   @media (pointer:coarse){ .chip{width:44px;height:38px;font-size:16px;} }
   #hint{width:960px;max-width:96vw;font-size:13px;line-height:1.5;padding:4px 4px 8px;box-sizing:border-box;opacity:.85;min-height:2.6em;}
-  canvas{background:#0a0a16;border-radius:8px;box-shadow:0 0 40px rgba(35,35,90,.55);max-width:96vw;max-height:56vh;cursor:crosshair;touch-action:none;}
-  @media (pointer:coarse) and (orientation:landscape){ canvas{max-height:42vh;} }
+  .cv-wrap{position:relative;display:inline-block;}
+  canvas{background:#0a0a16;border-radius:8px;box-shadow:0 0 40px rgba(35,35,90,.55);max-width:96vw;max-height:56vh;cursor:crosshair;touch-action:none;display:block;}
   #back{position:fixed;top:10px;left:12px;font-size:12px;color:#8f97c9;opacity:.6;text-decoration:none;}
   #back:hover{opacity:1;}
   .keys{font-size:12px;opacity:.55;padding:8px;text-align:center;}
@@ -32,11 +33,26 @@
     align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
   @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
   #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:8px;padding:4px 4px 2px;box-sizing:border-box;}
-  @media (pointer:coarse){ #tc{display:flex;} .keys{display:none;} }
-  .tc-btn{-webkit-tap-highlight-color:transparent;user-select:none;touch-action:none;cursor:pointer;
+  @media (pointer:coarse){
+    #tc{display:flex;} .keys{display:none;}
+    canvas{max-height:50vh;}
+    #hud{position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;width:auto;
+      gap:8px;padding:4px 8px;font-size:11px;border-radius:8px 8px 0 0;
+      background:linear-gradient(rgba(7,7,15,.6),rgba(7,7,15,0));}
+    .title{font-size:12px;}
+    .lv{font-size:10px;}
+    #time{font-size:12px;min-width:50px;}
+    #best{font-size:9px;min-width:60px;}
+    #hint{position:absolute;top:22px;left:0;right:0;z-index:2;pointer-events:none;width:auto;
+      font-size:10px;line-height:1.35;padding:2px 8px;box-sizing:border-box;min-height:0;
+      max-height:2.8em;overflow:hidden;background:rgba(7,7,15,.45);color:#cfd6ff;opacity:1;}
+  }
+  .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
+    user-select:none;touch-action:none;cursor:pointer;outline:none;
     display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
     background:#12122a;color:#cfd6ff;border:2px solid rgba(255,255,255,.15);border-radius:10px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
   .tc-btn.active{background:#19e6ff;color:#07070f;transform:translateY(2px);box-shadow:none;}
+  .tc-btn:focus{outline:none;}
   .tc-dpad{display:grid;grid-template-columns:repeat(3,36px);grid-template-rows:repeat(3,36px);gap:3px;}
   .tc-dpad .tc-btn{font-size:15px;}
   .tc-jump{width:70px;height:48px;font-size:13px;}
@@ -48,16 +64,20 @@
 <body>
 <div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
 <a id="back" href="index.html">← アーケードに戻る</a>
-<div id="hud">
-  <div class="title">GRAVITY BRUSH</div>
-  <div class="lv" id="lvLabel">LEVEL 1</div>
-  <div id="time">0.00</div>
-  <div id="best">BEST: --</div>
+<div class="cv-wrap">
+  <div id="hud">
+    <div class="title">GRAVITY BRUSH</div>
+    <div class="lv" id="lvLabel">LEVEL 1</div>
+    <div id="time">0.00</div>
+    <div id="best">BEST: --</div>
+  </div>
+  <div id="hint"></div>
+  <canvas id="cv" width="960" height="544"></canvas>
+</div>
+<div id="paletteRow">
   <div id="paintWrap"><div id="paintBar"></div></div>
   <div id="palette"></div>
 </div>
-<div id="hint"></div>
-<canvas id="cv" width="960" height="544"></canvas>
 <div class="keys">WASD/矢印:移動　SPACE:ジャンプ　クリック:壁を塗る(近くの壁のみ)　右クリック:消す　1〜4:色選択(ホイールでも)　R:リスタート　ESC:ステージ選択</div>
 <div id="tc">
   <div class="tc-dpad">
@@ -65,12 +85,12 @@
     <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
     <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
   </div>
-  <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
   <div class="tc-misc">
     <button class="tc-btn" id="tcErase">消</button>
     <button class="tc-btn" id="tcR">R</button>
     <button class="tc-btn" id="tcEsc">≡</button>
   </div>
+  <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
 </div>
 <script>
 "use strict";
