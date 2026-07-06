@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>GRAVITY BRUSH — 重力を塗り替えろ</title>
+<style>
+  html,body{margin:0;padding:0;background:#07070f;font-family:"Segoe UI",system-ui,sans-serif;color:#cfd6ff;
+    display:flex;flex-direction:column;align-items:center;min-height:100vh;user-select:none;overscroll-behavior:none;
+    -webkit-tap-highlight-color:transparent;}
+  #hud{width:960px;max-width:96vw;display:flex;align-items:center;gap:14px;padding:10px 4px 6px;box-sizing:border-box;}
+  .title{font-weight:800;letter-spacing:2px;font-size:18px;background:linear-gradient(90deg,#19e6ff,#ff2fd6);
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .lv{font-size:13px;opacity:.75;}
+  #time{font-variant-numeric:tabular-nums;font-size:15px;min-width:90px;}
+  #best{font-size:12px;opacity:.6;min-width:110px;}
+  #paintWrap{flex:1;height:10px;background:#191930;border-radius:5px;overflow:hidden;}
+  #paintBar{height:100%;width:100%;background:linear-gradient(90deg,#19e6ff,#ff2fd6,#8aff2f,#ffa51e);}
+  #palette{display:flex;gap:6px;}
+  .chip{width:34px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:700;color:#07070f;cursor:pointer;opacity:.45;border:2px solid transparent;
+    touch-action:none;-webkit-tap-highlight-color:transparent;}
+  .chip.sel{opacity:1;border-color:#fff;box-shadow:0 0 12px currentColor;}
+  @media (pointer:coarse){ .chip{width:44px;height:38px;font-size:16px;} }
+  #hint{width:960px;max-width:96vw;font-size:13px;line-height:1.5;padding:4px 4px 8px;box-sizing:border-box;opacity:.85;min-height:2.6em;}
+  canvas{background:#0a0a16;border-radius:8px;box-shadow:0 0 40px rgba(35,35,90,.55);max-width:96vw;max-height:56vh;cursor:crosshair;touch-action:none;}
+  @media (pointer:coarse) and (orientation:landscape){ canvas{max-height:42vh;} }
+  #back{position:fixed;top:10px;left:12px;font-size:12px;color:#8f97c9;opacity:.6;text-decoration:none;}
+  #back:hover{opacity:1;}
+  .keys{font-size:12px;opacity:.55;padding:8px;text-align:center;}
+  #rotatePrompt{display:none;position:fixed;inset:0;background:#07070f;color:#cfd6ff;z-index:999;
+    align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
+  @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
+  #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:8px;padding:4px 4px 2px;box-sizing:border-box;}
+  @media (pointer:coarse){ #tc{display:flex;} .keys{display:none;} }
+  .tc-btn{-webkit-tap-highlight-color:transparent;user-select:none;touch-action:none;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
+    background:#12122a;color:#cfd6ff;border:2px solid rgba(255,255,255,.15);border-radius:10px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
+  .tc-btn.active{background:#19e6ff;color:#07070f;transform:translateY(2px);box-shadow:none;}
+  .tc-dpad{display:grid;grid-template-columns:repeat(3,36px);grid-template-rows:repeat(3,36px);gap:3px;}
+  .tc-dpad .tc-btn{font-size:15px;}
+  .tc-jump{width:70px;height:48px;font-size:13px;}
+  .tc-misc{display:flex;gap:6px;}
+  .tc-misc .tc-btn{width:38px;height:38px;font-size:11px;}
+  #tcErase.active{background:#ff2fd6;color:#07070f;}
+</style>
+</head>
+<body>
+<div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
+<a id="back" href="index.html">← アーケードに戻る</a>
+<div id="hud">
+  <div class="title">GRAVITY BRUSH</div>
+  <div class="lv" id="lvLabel">LEVEL 1</div>
+  <div id="time">0.00</div>
+  <div id="best">BEST: --</div>
+  <div id="paintWrap"><div id="paintBar"></div></div>
+  <div id="palette"></div>
+</div>
+<div id="hint"></div>
+<canvas id="cv" width="960" height="544"></canvas>
+<div class="keys">WASD/矢印:移動　SPACE:ジャンプ　クリック:壁を塗る(近くの壁のみ)　右クリック:消す　1〜4:色選択(ホイールでも)　R:リスタート　ESC:ステージ選択</div>
+<div id="tc">
+  <div class="tc-dpad">
+    <div></div><button class="tc-btn" id="tcUp">▲</button><div></div>
+    <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
+    <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
+  </div>
+  <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
+  <div class="tc-misc">
+    <button class="tc-btn" id="tcErase">消</button>
+    <button class="tc-btn" id="tcR">R</button>
+    <button class="tc-btn" id="tcEsc">≡</button>
+  </div>
+</div>
+<script>
+"use strict";
+const TILE=32, COLS=30, ROWS=17, PAINT_RANGE=230;
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+const timeEl=document.getElementById("time"), bestEl=document.getElementById("best");
+const paintBar=document.getElementById("paintBar"), lvLabel=document.getElementById("lvLabel"), hintEl=document.getElementById("hint");
+
+/* ---------- サウンド ---------- */
+let AC=null;
+function ac(){ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); return AC; }
+function tone(f0,f1,dur,type,vol){
+  try{
+    const a=ac(),o=a.createOscillator(),g=a.createGain(),t=a.currentTime;
+    o.type=type;o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+dur);
+  }catch(e){}
+}
+const sfx={
+  paint(){tone(1200,1800,0.08,"sine",0.06);},
+  erase(){tone(600,300,0.08,"sine",0.05);},
+  flip(){tone(200,900,0.22,"sawtooth",0.07);tone(400,1400,0.22,"sine",0.05);},
+  jump(){tone(300,520,0.1,"square",0.05);},
+  pick(){tone(880,1760,0.15,"triangle",0.08);},
+  die(){tone(300,60,0.35,"sawtooth",0.1);},
+  clear(){[440,554,659,880,1108].forEach((f,i)=>setTimeout(()=>tone(f,f,0.2,"triangle",0.08),i*100));}
+};
+
+/* ---------- 色と重力 ---------- */
+const DIRS={U:{x:0,y:-1},R:{x:1,y:0},L:{x:-1,y:0},D:{x:0,y:1}};
+const COLORS=[
+  {key:"U",name:"↑",col:"#19e6ff"},
+  {key:"R",name:"→",col:"#ff2fd6"},
+  {key:"L",name:"←",col:"#8aff2f"},
+  {key:"D",name:"↓",col:"#ffa51e"},
+];
+let selColor=0;
+const palEl=document.getElementById("palette");
+COLORS.forEach((c,i)=>{
+  const d=document.createElement("div");
+  d.className="chip"; d.textContent=c.name; d.style.background=c.col; d.style.color=c.col;
+  d.onclick=()=>{selColor=i;refreshPal();};
+  palEl.appendChild(d);
+});
+function refreshPal(){ [...palEl.children].forEach((d,i)=>d.classList.toggle("sel",i===selColor)); }
+refreshPal();
+
+/* ---------- レベル ----------
+ #:壁  P:出発  G:ゴール  !:トゲ  *:塗料タンク(+6)  u/r/l/d:塗装済みの壁 */
+const LEVELS=[
+{ name:"LEVEL 1 『天地』", paint:12,
+  hint:"中央の壁は高すぎて跳べない。<b>床を「↑」で塗って触れる</b>と、天井に落ちる。天井を歩いて壁を越え、今度は<b>足元の天井を「↓」で塗って</b>帰ってこい。足元のタイルはいつでも塗れるぞ。",
+  map:[
+  "##############################",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "#              #             #",
+  "# P            #          G  #",
+  "##############################"]},
+{ name:"LEVEL 2 『壁のぼり』", paint:10,
+  hint:"右の縦穴は「→」で右壁を塗れば<b>壁が床になる</b>。壁の上をWで登れ。トゲはジャンプ(壁から跳ぶ)でかわせ。てっぺんの天井を「↑」で塗って、天井を歩けばゴールだ。",
+  map:[
+  "##############################",
+  "#                  G         #",
+  "###############              #",
+  "#             #              #",
+  "#             #              #",
+  "#             #             !#",
+  "#             #              #",
+  "#             #              #",
+  "#             #              #",
+  "#             #              #",
+  "#             #             !#",
+  "#             #              #",
+  "#             #              #",
+  "#             #              #",
+  "#      *                     #",
+  "# P                          #",
+  "##############################"]},
+{ name:"LEVEL 3 『反転回廊』", paint:9,
+  hint:"床にも天井にもトゲの海。<b>落ちながら横に移動</b>して、安全地帯に着地しろ。スピードに乗れば気持ちいいぞ。空中の塗料タンクも忘れずに。",
+  map:[
+  "##############################",
+  "#     !!!!         !!!!!  !! #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#             *              #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#P       !!!!    !!!!   !!  G#",
+  "##############################"]},
+{ name:"LEVEL 4 『螺旋』", paint:8,
+  hint:"最終問題。外周を<b>壁→天井</b>と伝い、中央の箱の真上から「↓」で落下。箱の屋根から脇に降りて、最深部の隙間をジャンプでくぐれ。塗料は残り少ない。計画的に。",
+  map:[
+  "##############################",
+  "#                            #",
+  "#                            #",
+  "#   ######################   #",
+  "#   #                    #   #",
+  "#   #                    #   #",
+  "#   #     ##########     #   #",
+  "#   #     #        #     #   #",
+  "#   #     #   G    #     #   #",
+  "#   #     #        #     #   #",
+  "#   #     ####  ####     #   #",
+  "#   #                    #   #",
+  "#   #                    #   #",
+  "#   ######################   #",
+  "#                            #",
+  "# P      !!!!!    !!!!       #",
+  "##############################"]},
+{ name:"LEVEL 5 『交響曲』", paint:5,
+  hint:"床はトゲの海、道は天井にしかない。「↑」で天井へ、トゲ地帯は<b>天井からジャンプ</b>で飛び越えろ。中程の安全地帯で「↓」を塗れば中段の桟橋に降りられる。桟橋の左端からゴール台へ跳べ!",
+  map:[
+  "##############################",
+  "#      !!!        !!!!!      #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#   G                        #",
+  "#####                        #",
+  "#                            #",
+  "#       ######################",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "# P    !!!!!!!!!!!!!!!!  *   #",
+  "##############################"]},
+{ name:"LEVEL 6 『振り子峡谷』", paint:6,
+  hint:"底は全面トゲ。浮島を跳び渡って進め……だがゴールは<b>大きな桟橋の裏側</b>に貼り付いている。最後の浮島で「↑」を塗って触れ、裏側に回り込め。落下中の緊急「↑」も君の自由だ。",
+  map:[
+  "##############################",
+  "#                            #",
+  "# P                          #",
+  "####                         #",
+  "#                     ########",
+  "#                       G    #",
+  "#     ##    *                #",
+  "#               ##  ###      #",
+  "#         ##                 #",
+  "#                            #",
+  "#                         *  #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#!!!!!!!!!!!!!!!!!!!!!!!!!!!!#",
+  "##############################"]},
+{ name:"LEVEL 7 『一筆書き』", paint:3,
+  hint:"最終楽章。必要な塗料は、たった1マス。スタートの床を「↑」に塗り、あとは<b>桟橋の裏側を歩いてジグザグに昇っていく</b>だけ。左へ、右へ、左へ——重力の川を一筆で泳ぎ切れ。",
+  map:[
+  "##############################",
+  "# G                          #",
+  "#####                        #",
+  "#                            #",
+  "#          ###################",
+  "#                            #",
+  "#                            #",
+  "###################          #",
+  "#                            #",
+  "#                            #",
+  "#          ###################",
+  "#                            #",
+  "#                            #",
+  "###################          #",
+  "#                        *   #",
+  "# P                          #",
+  "##############################"]}
+];
+// LEVEL4 の外周天井ギャップ: 上の map の row3 に中央ギャップを開ける
+LEVELS[3].map[3]="#   ##########  ##########   #";
+
+/* ---------- パース ---------- */
+let level=null, levelIdx=0;
+function parseLevel(def){
+  const tiles=[], painted={}, spikes=[], picks=[]; let spawn={x:64,y:480}, goal=null;
+  for(let r=0;r<ROWS;r++){
+    const row=(def.map[r]||"").padEnd(COLS," ");
+    tiles.push([]);
+    for(let c=0;c<COLS;c++){
+      const ch=row[c]; let t=" ";
+      if(ch==="#") t="#";
+      else if(ch==="P") spawn={x:c*TILE+6,y:r*TILE+TILE-20};
+      else if(ch==="G") goal={x:c*TILE+4,y:r*TILE+4,w:24,h:24};
+      else if(ch==="!") spikes.push({c,r});
+      else if(ch==="*") picks.push({c,r,got:false});
+      else if("urld".includes(ch)){ t="#"; painted[c+","+r]="URLD"["urld".indexOf(ch)]; }
+      tiles[r].push(t);
+    }
+  }
+  return {tiles,painted,spikes,picks,spawn,goal,paint:def.paint};
+}
+function isWall(c,r){ if(c<0||c>=COLS||r<0||r>=ROWS) return true; return level.tiles[r][c]==="#"; }
+
+/* ---------- プレイヤー ---------- */
+const P={x:0,y:0,w:20,h:20,vx:0,vy:0,grounded:false,deaths:0};
+let grav="D";
+const MOVEACC=0.6, MOVEMAX=4.2, GACC=0.5, GMAX=10.5, JUMP=10;
+let contactTiles=[];
+
+function physStep(inp){
+  const g=DIRS[grav];
+  // 移動(重力と垂直な軸のみ)
+  if(g.y!==0){ // 重力が上下 → 左右移動
+    P.vx+=inp.ax*MOVEACC;
+    P.vx=Math.max(-MOVEMAX,Math.min(MOVEMAX,P.vx));
+    if(inp.ax===0&&P.grounded)P.vx*=0.75;
+  }else{ // 重力が左右 → 上下移動
+    P.vy+=inp.ay*MOVEACC;
+    P.vy=Math.max(-MOVEMAX,Math.min(MOVEMAX,P.vy));
+    if(inp.ay===0&&P.grounded)P.vy*=0.75;
+  }
+  // ジャンプ(重力と逆へ)
+  if(inp.jump&&P.grounded){
+    if(g.y!==0)P.vy=-g.y*JUMP; else P.vx=-g.x*JUMP;
+    P.grounded=false; sfx.jump();
+  }
+  // 重力
+  P.vx+=g.x*GACC; P.vy+=g.y*GACC;
+  if(g.x>0)P.vx=Math.min(P.vx,GMAX); if(g.x<0)P.vx=Math.max(P.vx,-GMAX);
+  if(g.y>0)P.vy=Math.min(P.vy,GMAX); if(g.y<0)P.vy=Math.max(P.vy,-GMAX);
+
+  contactTiles=[];
+  P.grounded=false;
+  // X
+  P.x+=P.vx;
+  let r0=Math.floor(P.y/TILE), r1=Math.floor((P.y+P.h-1)/TILE);
+  if(P.vx>0){ const c=Math.floor((P.x+P.w)/TILE); let hit=false;
+    for(let r=r0;r<=r1;r++) if(isWall(c,r)){ if(!hit){P.x=c*TILE-P.w-0.01; if(g.x>0)P.grounded=true; P.vx=0; hit=true;} contactTiles.push([c,r]); } }
+  else if(P.vx<0){ const c=Math.floor(P.x/TILE); let hit=false;
+    for(let r=r0;r<=r1;r++) if(isWall(c,r)){ if(!hit){P.x=(c+1)*TILE+0.01; if(g.x<0)P.grounded=true; P.vx=0; hit=true;} contactTiles.push([c,r]); } }
+  // Y
+  P.y+=P.vy;
+  let c0=Math.floor(P.x/TILE), c1=Math.floor((P.x+P.w-1)/TILE);
+  if(P.vy>0){ const r=Math.floor((P.y+P.h)/TILE); let hit=false;
+    for(let c=c0;c<=c1;c++) if(isWall(c,r)){ if(!hit){P.y=r*TILE-P.h-0.01; if(g.y>0)P.grounded=true; P.vy=0; hit=true;} contactTiles.push([c,r]); } }
+  else if(P.vy<0){ const r=Math.floor(P.y/TILE); let hit=false;
+    for(let c=c0;c<=c1;c++) if(isWall(c,r)){ if(!hit){P.y=(r+1)*TILE+0.01; if(g.y<0)P.grounded=true; P.vy=0; hit=true;} contactTiles.push([c,r]); } }
+
+  // 塗られたタイルに触れたか
+  for(const [c,r] of contactTiles){
+    const p=level.painted[c+","+r];
+    if(p&&p!==grav){
+      grav=p; sfx.flip(); shake=8;
+      burst(P.x+P.w/2,P.y+P.h/2,COLORS.find(cc=>cc.key===p).col,20);
+      break;
+    }
+  }
+}
+
+/* ---------- ゲーム状態 ---------- */
+let state="intro", paintLeft=0, timeFrames=0, timerOn=false, shake=0;
+let particles=[], trail=[];
+let selIdx=0;
+const keys={};
+let mouse={x:0,y:0,down:false,rdown:false};
+
+function startLevel(idx){
+  if(idx>=LEVELS.length){ state="allclear"; sfx.clear(); return; }
+  levelIdx=idx; level=parseLevel(LEVELS[idx]);
+  P.x=level.spawn.x; P.y=level.spawn.y; P.vx=0; P.vy=0; P.deaths=0;
+  grav="D"; paintLeft=level.paint; timeFrames=0; timerOn=false;
+  particles=[]; trail=[];
+  lvLabel.textContent=LEVELS[idx].name;
+  hintEl.innerHTML=LEVELS[idx].hint;
+  const b=localStorage.getItem("gb_best_"+idx);
+  bestEl.textContent="BEST: "+(b?(+b).toFixed(2)+"s":"--");
+  state="play";
+}
+function die(){
+  sfx.die(); P.deaths++;
+  burst(P.x+P.w/2,P.y+P.h/2,"#ff3355",30);
+  P.x=level.spawn.x; P.y=level.spawn.y; P.vx=0; P.vy=0; grav="D"; shake=10;
+}
+function burst(x,y,col,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, s=1+Math.random()*4;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:30+Math.random()*20,col});
+  }
+}
+
+addEventListener("keydown",e=>{
+  if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," "].includes(e.key))e.preventDefault();
+  keys[e.key.toLowerCase()]=true;
+  ac(); if(AC&&AC.state==="suspended")AC.resume();
+  if(state==="intro"&&(e.key==="Enter"||e.key===" ")) state="select";
+  else if(state==="select"){
+    if(e.key==="ArrowUp")selIdx=(selIdx+LEVELS.length-1)%LEVELS.length;
+    else if(e.key==="ArrowDown")selIdx=(selIdx+1)%LEVELS.length;
+    else if(e.key==="Enter"||e.key===" ")startLevel(selIdx);
+    else if(e.key>="1"&&e.key<="9"&&+e.key<=LEVELS.length)startLevel(+e.key-1);
+  }
+  else if(state==="clear"){
+    if(e.key==="Enter")startLevel(levelIdx+1);
+    else if(e.key==="Escape"){selIdx=Math.min(levelIdx+1,LEVELS.length-1);state="select";}
+  }
+  else if(state==="allclear"&&e.key==="Enter"){selIdx=0;state="select";}
+  else if(state==="play"){
+    if(e.key.toLowerCase()==="r") startLevel(levelIdx);
+    if(e.key==="Escape"){selIdx=levelIdx;state="select";}
+    if(e.key>="1"&&e.key<="4"){ selColor=+e.key-1; refreshPal(); }
+  }
+  if("adws".includes(e.key.toLowerCase())||e.key.startsWith("Arrow")||e.key===" ") timerOn=true;
+});
+addEventListener("keyup",e=>{ keys[e.key.toLowerCase()]=false; });
+let mobileEraseMode=false;
+function updateMouseFromEvent(e){
+  const rc=cv.getBoundingClientRect();
+  mouse.x=(e.clientX-rc.left)*(cv.width/rc.width);
+  mouse.y=(e.clientY-rc.top)*(cv.height/rc.height);
+}
+cv.addEventListener("pointermove",e=>{ updateMouseFromEvent(e); });
+cv.addEventListener("pointerdown",e=>{
+  ac(); if(AC&&AC.state==="suspended")AC.resume();
+  updateMouseFromEvent(e);
+  if(state==="intro"){ state="select"; return; }
+  if(state==="select"){
+    const rc=cv.getBoundingClientRect();
+    const my=(e.clientY-rc.top)*(cv.height/rc.height);
+    const idx=Math.floor((my-96)/56);
+    if(idx>=0&&idx<LEVELS.length)startLevel(idx);
+    return;
+  }
+  if(e.pointerType==="touch"){
+    if(mobileEraseMode) mouse.rdown=true; else mouse.down=true;
+  }else{
+    if(e.button===0)mouse.down=true;
+    if(e.button===2)mouse.rdown=true;
+  }
+  tryPaint();
+});
+addEventListener("pointerup",e=>{
+  if(e.pointerType==="touch"){ mouse.down=false; mouse.rdown=false; }
+  else{ if(e.button===0)mouse.down=false; if(e.button===2)mouse.rdown=false; }
+});
+addEventListener("pointercancel",()=>{ mouse.down=false; mouse.rdown=false; });
+cv.addEventListener("contextmenu",e=>e.preventDefault());
+cv.addEventListener("wheel",e=>{
+  e.preventDefault();
+  selColor=(selColor+(e.deltaY>0?1:3))%4; refreshPal();
+},{passive:false});
+
+/* ---------- タッチ操作 ---------- */
+function bindHold(el,keyName){
+  const on=e=>{ e.preventDefault(); keys[keyName]=true; el.classList.add("active"); timerOn=true;
+    ac(); if(AC&&AC.state==="suspended")AC.resume(); };
+  const off=e=>{ keys[keyName]=false; el.classList.remove("active"); };
+  el.addEventListener("pointerdown",on);
+  el.addEventListener("pointerup",off);
+  el.addEventListener("pointercancel",off);
+  el.addEventListener("pointerleave",off);
+}
+bindHold(document.getElementById("tcLeft"),"arrowleft");
+bindHold(document.getElementById("tcRight"),"arrowright");
+bindHold(document.getElementById("tcUp"),"arrowup");
+bindHold(document.getElementById("tcDown"),"arrowdown");
+bindHold(document.getElementById("tcJump")," ");
+const tcErase=document.getElementById("tcErase");
+tcErase.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  mobileEraseMode=!mobileEraseMode;
+  tcErase.classList.toggle("active",mobileEraseMode);
+});
+document.getElementById("tcR").addEventListener("pointerdown",e=>{
+  e.preventDefault(); if(state==="play") startLevel(levelIdx);
+});
+document.getElementById("tcEsc").addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  if(state==="play"){ selIdx=levelIdx; state="select"; }
+  else if(state==="clear"){ selIdx=Math.min(levelIdx+1,LEVELS.length-1); state="select"; }
+});
+
+function hoverTile(){
+  const c=Math.floor(mouse.x/TILE), r=Math.floor(mouse.y/TILE);
+  if(c<0||c>=COLS||r<0||r>=ROWS)return null;
+  if(!isWall(c,r))return null;
+  const dx=(c*TILE+TILE/2)-(P.x+P.w/2), dy=(r*TILE+TILE/2)-(P.y+P.h/2);
+  if(dx*dx+dy*dy>PAINT_RANGE*PAINT_RANGE)return null;
+  return [c,r];
+}
+function tryPaint(){
+  if(state!=="play")return;
+  const h=hoverTile(); if(!h)return;
+  const key=h[0]+","+h[1];
+  if(mouse.rdown){
+    if(level.painted[key]){ delete level.painted[key]; paintLeft=Math.min(level.paint,paintLeft+1); sfx.erase(); }
+    return;
+  }
+  if(mouse.down){
+    const want=COLORS[selColor].key;
+    if(level.painted[key]===want)return;
+    if(paintLeft<=0){ tone(150,100,0.1,"sawtooth",0.05); return; }
+    if(!level.painted[key]) paintLeft--;
+    level.painted[key]=want;
+    sfx.paint(); timerOn=true;
+    burst(h[0]*TILE+16,h[1]*TILE+16,COLORS[selColor].col,10);
+  }
+}
+
+/* ---------- 更新 ---------- */
+function update(){
+  if(state!=="play")return;
+  if(mouse.down||mouse.rdown)tryPaint();
+  const inp={
+    ax:(keys["d"]||keys["arrowright"]?1:0)-(keys["a"]||keys["arrowleft"]?1:0),
+    ay:(keys["s"]||keys["arrowdown"]?1:0)-(keys["w"]||keys["arrowup"]?1:0),
+    jump:keys[" "]
+  };
+  physStep(inp);
+  trail.push({x:P.x+P.w/2,y:P.y+P.h/2,life:16});
+  if(trail.length>60)trail.shift();
+  // トゲ
+  const pr={x:P.x+3,y:P.y+3,w:P.w-6,h:P.h-6};
+  for(const s of level.spikes){
+    const sr={x:s.c*TILE+6,y:s.r*TILE+6,w:TILE-12,h:TILE-12};
+    if(pr.x<sr.x+sr.w&&pr.x+pr.w>sr.x&&pr.y<sr.y+sr.h&&pr.y+pr.h>sr.y){ die(); break; }
+  }
+  // タンク
+  for(const pk of level.picks){
+    if(pk.got)continue;
+    const kr={x:pk.c*TILE+6,y:pk.r*TILE+6,w:20,h:20};
+    if(pr.x<kr.x+kr.w&&pr.x+pr.w>kr.x&&pr.y<kr.y+kr.h&&pr.y+pr.h>kr.y){
+      pk.got=true; paintLeft=Math.min(99,paintLeft+6); sfx.pick();
+      burst(kr.x+10,kr.y+10,"#ffffff",16);
+    }
+  }
+  // ゴール
+  const g=level.goal;
+  if(pr.x<g.x+g.w&&pr.x+pr.w>g.x&&pr.y<g.y+g.h&&pr.y+pr.h>g.y){
+    sfx.clear(); state="clear";
+    const t=timeFrames/60, k="gb_best_"+levelIdx, b=localStorage.getItem(k);
+    if(!b||t<+b) localStorage.setItem(k,t);
+    return;
+  }
+  if(timerOn)timeFrames++;
+  timeEl.textContent=(timeFrames/60).toFixed(2)+"s";
+  paintBar.style.width=(paintLeft/level.paint*100)+"%";
+  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.vx*=0.96;p.vy*=0.96;p.life--;return p.life>0;});
+  if(shake>0)shake--;
+}
+
+/* ---------- 描画 ---------- */
+function arrowPath(cx,cy,dir,s){
+  ctx.save(); ctx.translate(cx,cy);
+  const rot={U:0,R:Math.PI/2,D:Math.PI,L:-Math.PI/2}[dir];
+  ctx.rotate(rot);
+  ctx.beginPath();
+  ctx.moveTo(0,-s); ctx.lineTo(s*0.7,s*0.4); ctx.lineTo(0,s*0.05); ctx.lineTo(-s*0.7,s*0.4);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function draw(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(state==="intro"){ drawIntro(); return; }
+  if(state==="select"){ drawSelect(); return; }
+  if(state==="allclear"){ drawAllClear(); return; }
+  if(shake>0)ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+  // グリッド
+  ctx.strokeStyle="rgba(90,90,180,0.07)"; ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let c=1;c<COLS;c++){ctx.moveTo(c*TILE,0);ctx.lineTo(c*TILE,cv.height);}
+  for(let r=1;r<ROWS;r++){ctx.moveTo(0,r*TILE);ctx.lineTo(cv.width,r*TILE);}
+  ctx.stroke();
+  // 壁
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(level.tiles[r][c]!=="#")continue;
+    const key=c+","+r, p=level.painted[key];
+    if(p){
+      const col=COLORS.find(cc=>cc.key===p).col;
+      ctx.save();
+      ctx.shadowColor=col; ctx.shadowBlur=14;
+      ctx.fillStyle=col; ctx.globalAlpha=0.85;
+      ctx.fillRect(c*TILE+1,r*TILE+1,TILE-2,TILE-2);
+      ctx.restore();
+      ctx.fillStyle="rgba(10,10,25,0.85)";
+      arrowPath(c*TILE+16,r*TILE+16,p,9);
+    }else{
+      ctx.fillStyle="#181828";
+      ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+      ctx.strokeStyle="rgba(120,130,255,0.12)";
+      ctx.strokeRect(c*TILE+0.5,r*TILE+0.5,TILE-1,TILE-1);
+    }
+  }
+  // トゲ
+  for(const s of level.spikes){
+    ctx.save();
+    ctx.shadowColor="#ff3355"; ctx.shadowBlur=10;
+    ctx.fillStyle="#ff3355";
+    const x=s.c*TILE,y=s.r*TILE;
+    const up=isWall(s.c,s.r+1); // 下に壁→上向きトゲ
+    ctx.beginPath();
+    for(let i=0;i<3;i++){
+      const bx=x+2+i*10;
+      if(up){ ctx.moveTo(bx,y+TILE); ctx.lineTo(bx+5,y+8); ctx.lineTo(bx+10,y+TILE); }
+      else  { ctx.moveTo(bx,y); ctx.lineTo(bx+5,y+TILE-8); ctx.lineTo(bx+10,y); }
+    }
+    ctx.fill(); ctx.restore();
+  }
+  // タンク
+  for(const pk of level.picks){
+    if(pk.got)continue;
+    const t=performance.now()/300;
+    ctx.save();
+    ctx.shadowColor="#ffffff"; ctx.shadowBlur=12;
+    ctx.fillStyle="#ffffff";
+    ctx.globalAlpha=0.85+Math.sin(t)*0.15;
+    ctx.beginPath(); ctx.arc(pk.c*TILE+16,pk.r*TILE+16+Math.sin(t*2)*3,7,0,7); ctx.fill();
+    ctx.restore();
+  }
+  // ゴールポータル
+  {
+    const g=level.goal,t=performance.now()/1000;
+    ctx.save();
+    ctx.translate(g.x+g.w/2,g.y+g.h/2);
+    ctx.shadowColor="#19e6ff"; ctx.shadowBlur=20;
+    for(let i=0;i<3;i++){
+      ctx.strokeStyle=`hsla(${(t*80+i*120)%360},100%,65%,0.9)`;
+      ctx.lineWidth=2.5;
+      ctx.beginPath();
+      ctx.ellipse(0,0,14+i*4,(14+i*4)*Math.abs(Math.sin(t*2+i)),t+i,0,7);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // トレイル
+  trail.forEach(tp=>{tp.life--;});
+  trail=trail.filter(tp=>tp.life>0);
+  for(const tp of trail){
+    ctx.fillStyle=`rgba(255,255,255,${tp.life/16*0.25})`;
+    ctx.fillRect(tp.x-2,tp.y-2,4,4);
+  }
+  // パーティクル
+  for(const p of particles){
+    ctx.globalAlpha=Math.min(1,p.life/20);
+    ctx.fillStyle=p.col;
+    ctx.fillRect(p.x-2,p.y-2,4,4);
+  }
+  ctx.globalAlpha=1;
+  // プレイヤー
+  ctx.save();
+  ctx.shadowColor="#ffffff"; ctx.shadowBlur=16;
+  ctx.fillStyle="#ffffff";
+  ctx.fillRect(P.x,P.y,P.w,P.h);
+  ctx.restore();
+  const gd=DIRS[grav];
+  ctx.fillStyle="#07070f";
+  arrowPath(P.x+P.w/2,P.y+P.h/2,grav,6);
+  // ペイント照準
+  const h=hoverTile();
+  if(h){
+    ctx.strokeStyle=COLORS[selColor].col; ctx.lineWidth=2;
+    ctx.setLineDash([4,3]);
+    ctx.strokeRect(h[0]*TILE+2,h[1]*TILE+2,TILE-4,TILE-4);
+    ctx.setLineDash([]);
+  }
+  // 範囲サークル(薄く)
+  ctx.strokeStyle="rgba(255,255,255,0.06)";
+  ctx.beginPath(); ctx.arc(P.x+P.w/2,P.y+P.h/2,PAINT_RANGE,0,7); ctx.stroke();
+
+  if(state==="clear"){
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle="rgba(5,5,15,0.8)"; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.textAlign="center";
+    ctx.fillStyle="#19e6ff"; ctx.font="bold 44px sans-serif";
+    ctx.fillText("STAGE CLEAR",cv.width/2,cv.height/2-40);
+    ctx.fillStyle="#fff"; ctx.font="22px sans-serif";
+    ctx.fillText("TIME  "+(timeFrames/60).toFixed(2)+"s　　DEATH "+P.deaths,cv.width/2,cv.height/2+8);
+    ctx.font="15px sans-serif"; ctx.fillStyle="#8f97c9";
+    ctx.fillText(levelIdx+1<LEVELS.length?"ENTER で次のステージ / ESC でステージ選択":"ENTER で結果へ",cv.width/2,cv.height/2+52);
+  }
+}
+function drawSelect(){
+  ctx.fillStyle="#0a0a16"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.textAlign="center";
+  ctx.save(); ctx.shadowColor="#ff2fd6"; ctx.shadowBlur=18;
+  ctx.fillStyle="#19e6ff"; ctx.font="bold 28px sans-serif";
+  ctx.fillText("STAGE SELECT",cv.width/2,50); ctx.restore();
+  ctx.font="12px sans-serif"; ctx.fillStyle="#8f97c9";
+  ctx.fillText("↑↓/クリックで選択 / ENTERで開始",cv.width/2,74);
+  LEVELS.forEach((L,i)=>{
+    const y=124+i*56, on=i===selIdx;
+    if(on){
+      ctx.save(); ctx.shadowColor="#19e6ff"; ctx.shadowBlur=12;
+      ctx.strokeStyle="#19e6ff"; ctx.lineWidth=2;
+      ctx.strokeRect(140,y-26,680,44); ctx.restore();
+      ctx.fillStyle="rgba(25,230,255,0.07)";
+      ctx.fillRect(140,y-26,680,44);
+    }
+    ctx.textAlign="left";
+    ctx.fillStyle=on?"#fff":"#9aa3d6"; ctx.font=(on?"bold ":"")+"17px sans-serif";
+    ctx.fillText(L.name,165,y+2);
+    ctx.textAlign="right";
+    ctx.fillStyle="#8f97c9"; ctx.font="12px sans-serif";
+    ctx.fillText(`塗料 ${L.paint}`,650,y+2);
+    const b=localStorage.getItem("gb_best_"+i);
+    ctx.fillStyle=b?"#8aff2f":"rgba(255,255,255,0.25)";
+    ctx.font="bold 13px sans-serif";
+    ctx.fillText(b?("BEST "+(+b).toFixed(2)+"s"):"未クリア",800,y+2);
+  });
+  ctx.textAlign="center";
+}
+function drawIntro(){
+  ctx.fillStyle="#0a0a16"; ctx.fillRect(0,0,cv.width,cv.height);
+  const t=performance.now()/1000;
+  ctx.textAlign="center";
+  ctx.save();
+  ctx.shadowColor="#ff2fd6"; ctx.shadowBlur=25;
+  const grad=ctx.createLinearGradient(280,0,680,0);
+  grad.addColorStop(0,"#19e6ff");grad.addColorStop(0.5,"#ff2fd6");grad.addColorStop(1,"#8aff2f");
+  ctx.fillStyle=grad; ctx.font="bold 54px sans-serif";
+  ctx.fillText("GRAVITY BRUSH",cv.width/2,170);
+  ctx.restore();
+  ctx.fillStyle="#cfd6ff"; ctx.font="17px sans-serif";
+  ctx.fillText("壁を塗れ。触れた色の方向へ、重力が塗り替わる。",cv.width/2,230);
+  ctx.fillText("床が天井に、壁が床に。世界のすべてが足場になる。",cv.width/2,258);
+  COLORS.forEach((c,i)=>{
+    const x=cv.width/2-120+i*80;
+    ctx.save(); ctx.shadowColor=c.col; ctx.shadowBlur=15;
+    ctx.fillStyle=c.col; ctx.fillRect(x-18,300,36,36); ctx.restore();
+    ctx.fillStyle="#0a0a16"; ctx.font="bold 20px sans-serif";
+    ctx.fillText(c.name,x,326);
+  });
+  if(Math.sin(t*4)>0){
+    ctx.fillStyle="#fff"; ctx.font="bold 20px sans-serif";
+    ctx.fillText("― ENTER / クリック で開始 ―",cv.width/2,420);
+  }
+}
+function drawAllClear(){
+  ctx.fillStyle="#0a0a16"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.textAlign="center";
+  ctx.save(); ctx.shadowColor="#19e6ff"; ctx.shadowBlur=22;
+  ctx.fillStyle="#19e6ff"; ctx.font="bold 48px sans-serif";
+  ctx.fillText("ALL CLEAR!",cv.width/2,190); ctx.restore();
+  ctx.fillStyle="#cfd6ff"; ctx.font="17px sans-serif";
+  ctx.fillText("重力はもう、君の絵筆だ。",cv.width/2,250);
+  let y=310;
+  for(let i=0;i<LEVELS.length;i++){
+    const b=localStorage.getItem("gb_best_"+i);
+    ctx.fillStyle="#8f97c9"; ctx.font="15px sans-serif";
+    ctx.fillText(`${LEVELS[i].name}   BEST ${b?(+b).toFixed(2)+"s":"--"}`,cv.width/2,y); y+=28;
+  }
+  ctx.fillStyle="#f2c14e"; ctx.font="15px sans-serif";
+  ctx.fillText("ENTER でタイトルへ",cv.width/2,y+30);
+}
+
+let last=performance.now(), acc=0;
+function tick(now){
+  acc+=Math.min(now-last,100); last=now;
+  while(acc>=1000/60){ update(); acc-=1000/60; }
+  draw();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

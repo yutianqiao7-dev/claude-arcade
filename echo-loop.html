@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ECHO LOOP — 過去の自分と共闘せよ</title>
+<style>
+  html,body{margin:0;padding:0;background:#efece3;font-family:"Segoe UI",system-ui,sans-serif;color:#2b2b2b;
+    display:flex;flex-direction:column;align-items:center;min-height:100vh;user-select:none;overscroll-behavior:none;
+    -webkit-tap-highlight-color:transparent;}
+  #hud{width:960px;max-width:96vw;display:flex;align-items:center;gap:16px;padding:10px 4px 6px;box-sizing:border-box;}
+  #hud .title{font-weight:800;letter-spacing:2px;font-size:18px;}
+  #hud .lv{font-size:13px;opacity:.7;}
+  #timerWrap{flex:1;height:10px;background:#d8d4c8;border-radius:5px;overflow:hidden;}
+  #timerBar{height:100%;width:100%;background:#ff5a5f;transition:none;border-radius:5px;}
+  #ghosts{font-size:13px;opacity:.8;min-width:110px;text-align:right;}
+  #hint{width:960px;max-width:96vw;font-size:13px;line-height:1.5;padding:4px 4px 8px;box-sizing:border-box;opacity:.85;min-height:2.6em;}
+  canvas{background:#f6f3ea;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.12);max-width:96vw;max-height:60vh;touch-action:none;}
+  #back{position:fixed;top:10px;left:12px;font-size:12px;color:#2b2b2b;opacity:.5;text-decoration:none;}
+  #back:hover{opacity:1;}
+  .keys{font-size:12px;opacity:.6;padding:8px;}
+  #rotatePrompt{display:none;position:fixed;inset:0;background:#1a1814;color:#f2e9d8;z-index:999;
+    align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
+  @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
+  #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:10px;padding:6px 4px 2px;box-sizing:border-box;}
+  @media (pointer:coarse){ #tc{display:flex;} .keys{display:none;} }
+  .tc-btn{-webkit-tap-highlight-color:transparent;user-select:none;touch-action:none;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
+    background:#2e2c28;color:#f2e9d8;border:2px solid rgba(0,0,0,.25);border-radius:12px;box-shadow:0 3px 0 rgba(0,0,0,.2);}
+  .tc-btn.active{background:#ff5a5f;transform:translateY(2px);box-shadow:none;}
+  .tc-move{display:flex;gap:8px;}
+  .tc-move .tc-btn{width:58px;height:58px;font-size:22px;}
+  .tc-jump{width:78px;height:58px;font-size:14px;}
+  .tc-misc{display:flex;gap:6px;}
+  .tc-misc .tc-btn{width:40px;height:40px;font-size:13px;}
+</style>
+</head>
+<body>
+<div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
+<a id="back" href="index.html">← アーケードに戻る</a>
+<div id="hud">
+  <div class="title">ECHO LOOP</div>
+  <div class="lv" id="lvLabel">LEVEL 1</div>
+  <div id="timerWrap"><div id="timerBar"></div></div>
+  <div id="ghosts">ゴースト: 0 / 6</div>
+</div>
+<div id="hint"></div>
+<canvas id="cv" width="960" height="544"></canvas>
+<div class="keys">←→/AD:移動　SPACE/W/↑:ジャンプ　R:ループを終えてゴースト化　X:ゴースト全消去　ESC:ステージ選択　ENTER:決定</div>
+<div id="tc">
+  <div class="tc-move">
+    <button class="tc-btn" id="tcLeft">◀</button>
+    <button class="tc-btn" id="tcRight">▶</button>
+  </div>
+  <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
+  <div class="tc-misc">
+    <button class="tc-btn" id="tcR">R</button>
+    <button class="tc-btn" id="tcX">X</button>
+    <button class="tc-btn" id="tcEsc">≡</button>
+  </div>
+</div>
+<script>
+"use strict";
+const TILE=32, COLS=30, ROWS=17;
+let loopFrames=720, ghostCap=6;
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+const timerBar=document.getElementById("timerBar"), ghostLabel=document.getElementById("ghosts");
+const lvLabel=document.getElementById("lvLabel"), hintEl=document.getElementById("hint");
+
+/* ---------- サウンド ---------- */
+let AC=null;
+function ac(){ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); return AC; }
+function tone(f0,f1,dur,type,vol){
+  try{
+    const a=ac(), o=a.createOscillator(), g=a.createGain(), t=a.currentTime;
+    o.type=type; o.frequency.setValueAtTime(f0,t); o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+dur);
+  }catch(e){}
+}
+const sfx={
+  jump(){tone(320,540,0.12,"square",0.05);},
+  ghostJump(){tone(320,540,0.12,"square",0.015);},
+  sw(){tone(900,700,0.07,"sine",0.08);},
+  die(){tone(320,60,0.3,"sawtooth",0.1);},
+  loop(){tone(800,120,0.45,"sawtooth",0.06); tone(1200,200,0.45,"sine",0.04);},
+  clear(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,f,0.18,"triangle",0.09),i*110));},
+  denied(){tone(180,120,0.15,"sawtooth",0.06);}
+};
+
+/* ---------- レベル定義 ---------- */
+// #:壁  P:スタート  G:ゴール  小文字:スイッチ  大文字:同じ文字のトビラ
+const LEVELS=[
+{ name:"LEVEL 1  『分身』",
+  hint:"同じ文字のスイッチを<b>全部同時に</b>押すとトビラが開く。だが体はひとつ…。<b>R</b>でループを終えると、今までの動きが<b>ゴースト</b>として再生される。スイッチ番はゴーストに任せて、君は走れ!",
+  map:[
+  "##############################",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       #    #",
+  "#                       A    #",
+  "#                       A    #",
+  "#                       A    #",
+  "#                       A    #",
+  "# P    a         a      A  G #",
+  "##############################"]},
+{ name:"LEVEL 2  『番人』",
+  hint:"高台のスイッチは<b>押している間だけ</b>トビラを開く。階段を登ってスイッチの上で待機するゴーストを録画→次の周回で君が走り抜けろ。待機中は動かなくていいから、登り切ったら<b>R</b>で時短!",
+  map:[
+  "##############################",
+  "#                      #     #",
+  "#                      #     #",
+  "#                      #     #",
+  "#                      #     #",
+  "#                      #     #",
+  "#                      #     #",
+  "# a                    #     #",
+  "######                 #     #",
+  "#                      #     #",
+  "#      ####            #     #",
+  "#                      A     #",
+  "#                      A     #",
+  "#           ###        A     #",
+  "#                      A     #",
+  "# P                    A   G #",
+  "##############################"]},
+{ name:"LEVEL 3  『踏み台』", loop:10,
+  hint:"あの高台、ジャンプでは届かない。だが<b>ゴーストの頭は足場になる</b>。高台のふちで待機するゴーストを録画→次の周回でその頭を蹴ってジャンプ!",
+  map:[
+  "##############################",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                         G  #",
+  "#                   ##########",
+  "#                            #",
+  "#                            #",
+  "# P                          #",
+  "##############################"]},
+{ name:"LEVEL 4  『三重奏』", loop:10, cap:4,
+  hint:"スイッチが3つ。1つは高台の上だ。ゴースト3体にそれぞれの持ち場を任せろ。扉の手前には<b>トゲ</b>——踏めば録画ごと失う。走者はいつだって、君だ。",
+  map:[
+  "##############################",
+  "#                #           #",
+  "#                #           #",
+  "#                #           #",
+  "#                #           #",
+  "#                #           #",
+  "#                #           #",
+  "#                #           #",
+  "#                #           #",
+  "#       a        #           #",
+  "#     #####      #           #",
+  "#                A           #",
+  "#                A           #",
+  "#  ##            A           #",
+  "#                A           #",
+  "# P  a       a ^^A         G #",
+  "##############################"]},
+{ name:"LEVEL 5  『総力戦』", loop:10, cap:5,
+  hint:"<b>スイッチ番×2、踏み台役×1、高所のレバー番×1</b>——そして走者は君。レバー番は踏み台役の頭を借りないと登れない。仕上げのトゲも跳び越えろ!",
+  map:[
+  "##############################",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         #         #        #",
+  "#         A     b   B        #",
+  "#         A     ##  B        #",
+  "#         A         B        #",
+  "#         A         B        #",
+  "# P a   a A  ^^     B      G #",
+  "##############################"]},
+{ name:"LEVEL 6  『組体操』", loop:10,
+  hint:"新技術:<b>ゴーストの上にゴーストは乗れる</b>。1体目はあの棚の下で待機。2体目はその頭の上に乗って待機。3周目の君は、2段の塔を駆け上がれ!",
+  map:[
+  "##############################",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "#                        G   #",
+  "#                      #######",
+  "#                            #",
+  "#                            #",
+  "#                            #",
+  "# P                          #",
+  "##############################"]},
+{ name:"LEVEL 7  『中継塔』", loop:9, cap:4,
+  hint:"左の高台のスイッチがA、中央の高棚のレバーがBを開く。高棚はゴーストの頭がないと届かない。<b>9秒ループ・ゴースト4枠</b>。Rの時短なしでは間に合わないぞ。",
+  map:[
+  "##############################",
+  "#           #     #          #",
+  "#           #     #          #",
+  "#           #     #          #",
+  "#           #     #          #",
+  "#           #     #          #",
+  "#           #     #          #",
+  "# a         #     #          #",
+  "#####       #     #          #",
+  "#           #     #          #",
+  "#     ##    #     #          #",
+  "#           A  b  B          #",
+  "#           A ##  B          #",
+  "#        ## A     B          #",
+  "#           A     B          #",
+  "# P         A     B ^^     G #",
+  "##############################"]},
+{ name:"LEVEL 8  『五重奏』", loop:10, cap:5,
+  hint:"卒業試験。<b>スイッチ番×2、2段櫓×2、レバー番×1</b>——ちょうど5枠、失敗は許されない。トゲの二重堀を越え、10秒以内に全員を配置せよ。詰んだらXでやり直せ。",
+  map:[
+  "##############################",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #           #      #",
+  "#         #     b     #      #",
+  "#         A    ###    B      #",
+  "#         A           B      #",
+  "#         A           B      #",
+  "#         A           B      #",
+  "# P a   a A ^^      ^ B   G  #",
+  "##############################"]}
+];
+
+/* ---------- レベルパース ---------- */
+let level=null, levelIdx=0;
+function parseLevel(def){
+  const tiles=[], switches=[], doors=[], spikes=[]; let spawn={x:64,y:448}, goal=null;
+  for(let r=0;r<ROWS;r++){
+    const row=(def.map[r]||"").padEnd(COLS," ");
+    tiles.push([]);
+    for(let c=0;c<COLS;c++){
+      const ch=row[c]; let t=" ";
+      if(ch==="#") t="#";
+      else if(ch==="P") spawn={x:c*TILE+5,y:r*TILE+TILE-28};
+      else if(ch==="G") goal={x:c*TILE,y:r*TILE,w:TILE,h:TILE};
+      else if(ch==="^") spikes.push({c,r});
+      else if(ch>="a"&&ch<="z") switches.push({c,r,ch});
+      else if(ch>="A"&&ch<="Z") doors.push({c,r,ch:ch.toLowerCase()});
+      tiles[r].push(t);
+    }
+  }
+  const totals={};
+  switches.forEach(s=>{totals[s.ch]=(totals[s.ch]||0)+1;});
+  return {tiles,switches,doors,spikes,spawn,goal,totals,openLetters:{}};
+}
+function solidAt(c,r){
+  if(c<0||c>=COLS||r<0||r>=ROWS) return true;
+  if(level.tiles[r][c]==="#") return true;
+  for(const d of level.doors) if(d.c===c&&d.r===r&&!level.openLetters[d.ch]) return true;
+  return false;
+}
+
+/* ---------- エンティティ ---------- */
+const GRAV=0.55, MAXFALL=12, MOVE=3.2, JUMP=11.2;
+class Ent{
+  constructor(x,y){ this.x=x; this.y=y; this.w=22; this.h=28; this.vx=0; this.vy=0; this.grounded=false; this.prevJ=false; this.face=1; this.squash=0; }
+  step(inp, platforms, isPlayer){
+    const L=!!(inp&1), R=!!(inp&2), J=!!(inp&4);
+    this.vx=(R?MOVE:0)-(L?MOVE:0);
+    if(R) this.face=1; if(L) this.face=-1;
+    if(J&&!this.prevJ&&this.grounded){ this.vy=-JUMP; this.grounded=false; this.squash=8; isPlayer?sfx.jump():sfx.ghostJump(); }
+    this.prevJ=J;
+    this.vy=Math.min(this.vy+GRAV,MAXFALL);
+    // X移動
+    this.x+=this.vx;
+    let r0=Math.floor(this.y/TILE), r1=Math.floor((this.y+this.h-1)/TILE);
+    if(this.vx>0){ const c=Math.floor((this.x+this.w)/TILE);
+      for(let r=r0;r<=r1;r++) if(solidAt(c,r)){ this.x=c*TILE-this.w-0.01; break; } }
+    else if(this.vx<0){ const c=Math.floor(this.x/TILE);
+      for(let r=r0;r<=r1;r++) if(solidAt(c,r)){ this.x=(c+1)*TILE+0.01; break; } }
+    // Y移動
+    const prevBottom=this.y+this.h;
+    this.y+=this.vy;
+    this.grounded=false;
+    let c0=Math.floor(this.x/TILE), c1=Math.floor((this.x+this.w-1)/TILE);
+    if(this.vy>0){ const r=Math.floor((this.y+this.h)/TILE);
+      for(let c=c0;c<=c1;c++) if(solidAt(c,r)){ this.y=r*TILE-this.h-0.01; this.vy=0; this.grounded=true; break; } }
+    else if(this.vy<0){ const r=Math.floor(this.y/TILE);
+      for(let c=c0;c<=c1;c++) if(solidAt(c,r)){ this.y=(r+1)*TILE+0.01; this.vy=0; break; } }
+    // ゴーストの頭(一方通行の足場)
+    if(this.vy>=0){
+      for(const p of platforms){
+        if(this.x+this.w>p.x+3 && this.x<p.x+p.w-3 &&
+           prevBottom<=p.y+6 && this.y+this.h>=p.y){
+          this.y=p.y-this.h; this.vy=0; this.grounded=true;
+        }
+      }
+    }
+    if(this.squash>0) this.squash--;
+  }
+  rect(){ return {x:this.x,y:this.y,w:this.w,h:this.h}; }
+}
+function overlap(a,b){ return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y; }
+
+/* ---------- ゲーム状態 ---------- */
+let state="intro"; // intro | select | play | clear | allclear
+let player=null, ghosts=[], recording=[], frame=0, flash=0, flashRed=false, clearTimer=0;
+let selIdx=0;
+let clearedArr=[];
+try{clearedArr=JSON.parse(localStorage.getItem("echo_cleared")||"[]");}catch(e){}
+const keys={};
+addEventListener("keydown",e=>{
+  if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," "].includes(e.key)) e.preventDefault();
+  keys[e.key.toLowerCase()]=true; keys[e.key]=true;
+  ac(); if(AC && AC.state==="suspended") AC.resume();
+  if(state==="intro"&&(e.key==="Enter"||e.key===" ")){ state="select"; }
+  else if(state==="select"){
+    if(e.key==="ArrowUp")selIdx=(selIdx+LEVELS.length-1)%LEVELS.length;
+    else if(e.key==="ArrowDown")selIdx=(selIdx+1)%LEVELS.length;
+    else if(e.key==="Enter"||e.key===" ")startLevel(selIdx);
+    else if(e.key>="1"&&e.key<="8"&&+e.key<=LEVELS.length)startLevel(+e.key-1);
+  }
+  else if(state==="clear"){
+    if(e.key==="Enter")startLevel(levelIdx+1);
+    else if(e.key==="Escape"){ selIdx=Math.min(levelIdx+1,LEVELS.length-1); state="select"; }
+  }
+  else if(state==="allclear"&&e.key==="Enter"){ selIdx=0; state="select"; }
+  else if(state==="play"){
+    if(e.key.toLowerCase()==="r") endLoop(true);
+    if(e.key.toLowerCase()==="x"){ ghosts=[]; sfx.denied(); }
+    if(e.key==="Escape"){ selIdx=levelIdx; state="select"; }
+  }
+});
+addEventListener("keyup",e=>{ keys[e.key.toLowerCase()]=false; keys[e.key]=false; });
+
+/* ---------- タッチ操作 ---------- */
+function bindHold(el,keyName){
+  const on=e=>{ e.preventDefault(); keys[keyName]=true; el.classList.add("active");
+    ac(); if(AC&&AC.state==="suspended")AC.resume(); };
+  const off=e=>{ keys[keyName]=false; el.classList.remove("active"); };
+  el.addEventListener("pointerdown",on);
+  el.addEventListener("pointerup",off);
+  el.addEventListener("pointercancel",off);
+  el.addEventListener("pointerleave",off);
+}
+bindHold(document.getElementById("tcLeft"),"arrowleft");
+bindHold(document.getElementById("tcRight"),"arrowright");
+bindHold(document.getElementById("tcJump")," ");
+document.getElementById("tcR").addEventListener("pointerdown",e=>{
+  e.preventDefault(); ac(); if(AC&&AC.state==="suspended")AC.resume();
+  if(state==="play") endLoop(true);
+});
+document.getElementById("tcX").addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  if(state==="play"){ ghosts=[]; sfx.denied(); }
+});
+document.getElementById("tcEsc").addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  if(state==="play"){ selIdx=levelIdx; state="select"; }
+  else if(state==="clear"){ selIdx=Math.min(levelIdx+1,LEVELS.length-1); state="select"; }
+});
+cv.addEventListener("pointerdown",e=>{
+  ac(); if(AC&&AC.state==="suspended")AC.resume();
+  if(state==="intro"){ state="select"; return; }
+  if(state==="select"){
+    const rc=cv.getBoundingClientRect();
+    const my=(e.clientY-rc.top)*(cv.height/rc.height);
+    const idx=Math.round((my-118)/50);
+    if(idx>=0&&idx<LEVELS.length) startLevel(idx);
+    return;
+  }
+  if(state==="clear"){ startLevel(levelIdx+1); return; }
+  if(state==="allclear"){ selIdx=0; state="select"; return; }
+});
+
+function startLevel(idx){
+  if(idx>=LEVELS.length){ state="allclear"; sfx.clear(); return; }
+  levelIdx=idx; level=parseLevel(LEVELS[idx]);
+  loopFrames=(LEVELS[idx].loop||12)*60;
+  ghostCap=LEVELS[idx].cap||6;
+  ghosts=[]; resetLoop();
+  lvLabel.textContent=LEVELS[idx].name;
+  hintEl.innerHTML=LEVELS[idx].hint+
+    `<br><span style="opacity:.55">ループ ${LEVELS[idx].loop||12}秒 / ゴースト上限 ${ghostCap}体${level.spikes.length?" / トゲ注意(踏むと録画ごと消滅)":""}</span>`;
+  state="play";
+}
+function resetLoop(){
+  player=new Ent(level.spawn.x,level.spawn.y);
+  for(const g of ghosts){ g.ent=new Ent(level.spawn.x,level.spawn.y); }
+  recording=[]; frame=0; flash=14;
+}
+function endLoop(save){
+  if(save&&recording.length>8){
+    ghosts.push({rec:recording.slice(),ent:null});
+    if(ghosts.length>ghostCap) ghosts.shift();
+  }
+  flashRed=false;
+  sfx.loop(); resetLoop();
+}
+
+/* ---------- 更新 ---------- */
+function update(){
+  if(state!=="play") return;
+  // 現フレームのトビラ状態(前フレームの位置から算出)
+  const pressed={};
+  const ents=[player,...ghosts.map(g=>g.ent)].filter(Boolean);
+  for(const s of level.switches){
+    const sr={x:s.c*TILE+4,y:s.r*TILE+14,w:TILE-8,h:TILE-14};
+    for(const e of ents) if(overlap(e.rect(),sr)){ pressed[s.ch]=(pressed[s.ch]||0)+1; break; }
+  }
+  const before=JSON.stringify(level.openLetters);
+  level.openLetters={};
+  for(const ch in level.totals){
+    // 同じ文字のスイッチのうち、押されている個数を数える
+    let cnt=0;
+    for(const s of level.switches.filter(s=>s.ch===ch)){
+      const sr={x:s.c*TILE+4,y:s.r*TILE+14,w:TILE-8,h:TILE-14};
+      if(ents.some(e=>overlap(e.rect(),sr))) cnt++;
+    }
+    level.openLetters[ch]=(cnt===level.totals[ch]);
+  }
+  if(JSON.stringify(level.openLetters)!==before && Object.values(level.openLetters).some(v=>v)) sfx.sw();
+
+  // ゴースト(古い順)。各ゴーストは自分より古いゴーストの頭に乗れる
+  const plats=[];
+  ghosts.forEach((g,i)=>{
+    const inp=g.rec[frame]||0;
+    g.ent.step(inp,plats.slice(),false);
+    plats.push(g.ent.rect());
+  });
+  // プレイヤー
+  let inp=0;
+  if(keys["arrowleft"]||keys["a"]) inp|=1;
+  if(keys["arrowright"]||keys["d"]) inp|=2;
+  if(keys[" "]||keys["arrowup"]||keys["w"]) inp|=4;
+  recording.push(inp);
+  player.step(inp,plats,true);
+
+  // トゲ判定(プレイヤーのみ。踏むと今の録画を失ってループ即リセット)
+  {
+    const pr={x:player.x+4,y:player.y+8,w:player.w-8,h:player.h-8};
+    for(const s of level.spikes){
+      const sr={x:s.c*TILE+5,y:s.r*TILE+12,w:TILE-10,h:TILE-12};
+      if(overlap(pr,sr)){
+        sfx.die(); resetLoop(); flashRed=true; return;
+      }
+    }
+  }
+  // ゴール判定
+  if(overlap(player.rect(),level.goal)){
+    sfx.clear(); state="clear"; clearTimer=0;
+    clearedArr[levelIdx]=true;
+    try{localStorage.setItem("echo_cleared",JSON.stringify(clearedArr));}catch(e){}
+    return;
+  }
+  frame++;
+  if(frame>=loopFrames) endLoop(true);
+  timerBar.style.width=((1-frame/loopFrames)*100)+"%";
+  timerBar.style.background=frame>loopFrames*0.75?"#e8443a":"#ff5a5f";
+  ghostLabel.textContent=`ゴースト: ${ghosts.length} / ${ghostCap}`;
+  if(flash>0) flash--;
+}
+
+/* ---------- 描画 ---------- */
+function drawEnt(e,ghost,idx){
+  ctx.save();
+  const sq=e.squash>0?e.squash/8:0;
+  const w=e.w*(1-sq*0.15), h=e.h*(1+sq*0.1);
+  const x=e.x+(e.w-w)/2, y=e.y+(e.h-h);
+  if(ghost){
+    ctx.globalAlpha=0.38;
+    ctx.fillStyle="#5b7db1";
+    ctx.strokeStyle="#5b7db1";
+    ctx.setLineDash([4,3]);
+    roundRect(x,y,w,h,5); ctx.fill();
+    ctx.globalAlpha=0.8; ctx.setLineDash([]);
+    ctx.fillStyle="#fff"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center";
+    ctx.fillText(idx+1, x+w/2, y+h/2+4);
+  }else{
+    ctx.fillStyle="#ff5a5f";
+    roundRect(x,y,w,h,5); ctx.fill();
+    ctx.fillStyle="#fff";
+    ctx.beginPath(); ctx.arc(x+w/2+e.face*4,y+9,2.6,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(state==="intro"){ drawIntro(); return; }
+  if(state==="select"){ drawSelect(); return; }
+  if(state==="allclear"){ drawAllClear(); return; }
+  // 背景ドット
+  ctx.fillStyle="rgba(0,0,0,0.05)";
+  for(let r=1;r<ROWS;r++)for(let c=1;c<COLS;c++){ ctx.fillRect(c*TILE-1,r*TILE-1,2,2); }
+  // タイル
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(level.tiles[r][c]==="#"){
+      ctx.fillStyle="#2e2c28";
+      ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+      ctx.fillStyle="rgba(255,255,255,0.06)";
+      ctx.fillRect(c*TILE,r*TILE,TILE,3);
+    }
+  }
+  // ゴール
+  const g=level.goal, t=performance.now()/1000;
+  ctx.save();
+  ctx.translate(g.x+TILE/2,g.y+TILE/2);
+  const pul=1+Math.sin(t*4)*0.12;
+  ctx.rotate(t*1.2); ctx.scale(pul,pul);
+  ctx.fillStyle="#2bbf9a";
+  roundRect(-11,-11,22,22,4); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle="#2bbf9a"; ctx.font="10px sans-serif"; ctx.textAlign="center";
+  ctx.fillText("GOAL",g.x+TILE/2,g.y-6);
+  // スイッチ
+  for(const s of level.switches){
+    const px=s.c*TILE, py=s.r*TILE;
+    const sr={x:px+4,y:py+14,w:TILE-8,h:TILE-14};
+    const ents=[player,...ghosts.map(gh=>gh.ent)].filter(Boolean);
+    const on=ents.some(e=>overlap(e.rect(),sr));
+    ctx.fillStyle="#8a877e";
+    ctx.fillRect(px+6,py+TILE-8,TILE-12,8);
+    ctx.fillStyle=on?"#e8a020":"#f2c14e";
+    roundRect(px+8,py+TILE-(on?12:18),TILE-16,on?6:12,3); ctx.fill();
+    ctx.fillStyle="#5c5a54"; ctx.font="bold 10px sans-serif"; ctx.textAlign="center";
+    ctx.fillText(s.ch.toUpperCase(),px+TILE/2,py+TILE-22);
+  }
+  // トビラ
+  for(const d of level.doors){
+    const px=d.c*TILE, py=d.r*TILE, open=level.openLetters[d.ch];
+    if(open){
+      ctx.strokeStyle="rgba(90,90,90,0.35)"; ctx.setLineDash([5,5]);
+      ctx.strokeRect(px+4,py+2,TILE-8,TILE-4); ctx.setLineDash([]);
+    }else{
+      ctx.fillStyle="#6b6862";
+      ctx.fillRect(px+3,py,TILE-6,TILE);
+      ctx.fillStyle="rgba(255,255,255,0.15)";
+      ctx.fillRect(px+3,py+TILE/2-1,TILE-6,2);
+      ctx.fillStyle="#f2c14e"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center";
+      ctx.fillText(d.ch.toUpperCase(),px+TILE/2,py+TILE/2-6);
+    }
+  }
+  // トゲ
+  for(const s of level.spikes){
+    ctx.fillStyle="#d43d3d";
+    const x=s.c*TILE,y=s.r*TILE;
+    ctx.beginPath();
+    for(let i=0;i<4;i++){
+      const bx=x+2+i*7;
+      ctx.moveTo(bx,y+TILE); ctx.lineTo(bx+3.5,y+9); ctx.lineTo(bx+7,y+TILE);
+    }
+    ctx.fill();
+  }
+  // エンティティ
+  ghosts.forEach((gh,i)=>{ if(gh.ent) drawEnt(gh.ent,true,i); });
+  if(player) drawEnt(player,false,0);
+  // ループリセットのフラッシュ(トゲ死は赤)
+  if(flash>0){
+    ctx.fillStyle=flashRed?`rgba(230,60,60,${flash/14*0.55})`:`rgba(255,255,255,${flash/14*0.7})`;
+    ctx.fillRect(0,0,cv.width,cv.height);
+  }
+  if(state==="clear"){
+    clearTimer++;
+    ctx.fillStyle="rgba(43,43,40,0.75)";
+    ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle="#fff"; ctx.textAlign="center";
+    ctx.font="bold 42px sans-serif";
+    ctx.fillText("CLEAR!",cv.width/2,cv.height/2-20);
+    ctx.font="16px sans-serif";
+    ctx.fillText(levelIdx+1<LEVELS.length?"ENTER で次のレベルへ / ESC でステージ選択":"ENTER で結果へ",cv.width/2,cv.height/2+24);
+  }
+}
+function drawSelect(){
+  ctx.fillStyle="#2e2c28"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.textAlign="center";
+  ctx.fillStyle="#ff5a5f"; ctx.font="bold 30px sans-serif";
+  ctx.fillText("STAGE SELECT",cv.width/2,58);
+  ctx.font="12px sans-serif"; ctx.fillStyle="#8d897d";
+  ctx.fillText("↑↓で選択 / ENTERで開始 / 数字キー直行",cv.width/2,84);
+  LEVELS.forEach((L,i)=>{
+    const y=118+i*50, on=i===selIdx;
+    if(on){
+      ctx.fillStyle="rgba(255,90,95,0.15)";
+      ctx.fillRect(150,y-24,660,40);
+      ctx.strokeStyle="#ff5a5f"; ctx.lineWidth=2;
+      ctx.strokeRect(150,y-24,660,40);
+    }
+    ctx.textAlign="left";
+    ctx.fillStyle=on?"#fff":"#b8b4a6"; ctx.font=(on?"bold ":"")+"17px sans-serif";
+    ctx.fillText(L.name,175,y+2);
+    ctx.textAlign="right";
+    ctx.fillStyle="#8d897d"; ctx.font="12px sans-serif";
+    const spk=(L.map.join("").includes("^"))?" / トゲ":"";
+    ctx.fillText(`${L.loop||12}秒 / 上限${L.cap||6}体${spk}`,700,y+2);
+    if(clearedArr[i]){
+      ctx.fillStyle="#2bbf9a"; ctx.font="bold 15px sans-serif";
+      ctx.fillText("CLEAR ✓",790,y+2);
+    }
+  });
+  ctx.textAlign="center";
+}
+function drawIntro(){
+  ctx.fillStyle="#2e2c28"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.textAlign="center";
+  ctx.fillStyle="#ff5a5f"; ctx.font="bold 56px sans-serif";
+  ctx.fillText("ECHO LOOP",cv.width/2,170);
+  ctx.fillStyle="#d8d4c8"; ctx.font="18px sans-serif";
+  ctx.fillText("12秒のループ。ループが終わると、過去の君が『ゴースト』として蘇る。",cv.width/2,230);
+  ctx.fillText("最大6体の自分自身とチームを組み、8つの謎を解け。",cv.width/2,260);
+  ctx.fillStyle="#f2c14e"; ctx.font="15px sans-serif";
+  ctx.fillText("←→:移動　SPACE:ジャンプ　R:ループ終了(ゴースト化)　X:ゴースト消去",cv.width/2,330);
+  const blink=Math.sin(performance.now()/300)>0;
+  if(blink){ ctx.fillStyle="#fff"; ctx.font="bold 20px sans-serif";
+    ctx.fillText("― ENTER で開始 ―",cv.width/2,410); }
+  // デモゴースト
+  const t=performance.now()/1000;
+  for(let i=0;i<4;i++){
+    ctx.globalAlpha=i===3?1:0.35;
+    ctx.fillStyle=i===3?"#ff5a5f":"#5b7db1";
+    const x=cv.width/2-120+i*70+Math.sin(t*2+i)*10;
+    const y=460+Math.abs(Math.sin(t*3+i))*-18;
+    roundRect(x,y,22,28,5); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+function drawAllClear(){
+  ctx.fillStyle="#2e2c28"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.textAlign="center";
+  ctx.fillStyle="#2bbf9a"; ctx.font="bold 48px sans-serif";
+  ctx.fillText("ALL CLEAR!",cv.width/2,200);
+  ctx.fillStyle="#d8d4c8"; ctx.font="18px sans-serif";
+  ctx.fillText("君は、君自身との最高のチームだった。",cv.width/2,260);
+  ctx.font="15px sans-serif"; ctx.fillStyle="#f2c14e";
+  ctx.fillText("ENTER でタイトルへ / 左上のリンクでアーケードへ",cv.width/2,330);
+}
+
+/* ---------- メインループ(60fps固定ステップ) ---------- */
+let last=performance.now(), acc=0;
+function tick(now){
+  acc+=Math.min(now-last,100); last=now;
+  while(acc>=1000/60){ update(); acc-=1000/60; }
+  draw();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

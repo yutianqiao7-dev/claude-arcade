@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ABYSS SONAR — 音だけが、目だった</title>
+<style>
+  html,body{margin:0;padding:0;background:#000;font-family:"Segoe UI",system-ui,sans-serif;color:#9fe8dd;
+    display:flex;flex-direction:column;align-items:center;min-height:100vh;user-select:none;overscroll-behavior:none;
+    -webkit-tap-highlight-color:transparent;}
+  #hud{width:960px;max-width:96vw;display:flex;align-items:center;gap:18px;padding:10px 4px 6px;box-sizing:border-box;font-size:13px;}
+  .title{font-weight:800;letter-spacing:3px;font-size:17px;color:#38e8c8;text-shadow:0 0 12px rgba(56,232,200,.6);}
+  #pearls{color:#ffd9fa;}
+  #hud .sp{flex:1;}
+  canvas{background:#010204;border-radius:8px;box-shadow:0 0 60px rgba(20,80,90,.35);max-width:96vw;max-height:58vh;touch-action:none;}
+  @media (pointer:coarse) and (orientation:landscape){ canvas{max-height:46vh;} }
+  #back{position:fixed;top:10px;left:12px;font-size:12px;color:#4a7;opacity:.5;text-decoration:none;}
+  #back:hover{opacity:1;}
+  .keys{font-size:12px;opacity:.45;padding:8px;text-align:center;}
+  #rotatePrompt{display:none;position:fixed;inset:0;background:#000;color:#9fe8dd;z-index:999;
+    align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
+  @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
+  #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:8px;padding:4px 4px 2px;box-sizing:border-box;}
+  @media (pointer:coarse){ #tc{display:flex;} .keys{display:none;} }
+  .tc-btn{-webkit-tap-highlight-color:transparent;user-select:none;touch-action:none;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-family:inherit;
+    background:#02201c;color:#9fe8dd;border:2px solid rgba(56,232,200,.35);border-radius:10px;box-shadow:0 3px 0 rgba(0,0,0,.4);}
+  .tc-btn.active{background:#38e8c8;color:#012;transform:translateY(2px);box-shadow:none;}
+  .tc-dpad{display:grid;grid-template-columns:repeat(3,36px);grid-template-rows:repeat(3,36px);gap:3px;}
+  .tc-dpad .tc-btn{font-size:15px;}
+  #tcPing{width:70px;height:48px;font-size:12px;}
+  .tc-misc{display:flex;gap:6px;}
+  .tc-misc .tc-btn{width:38px;height:38px;font-size:11px;}
+</style>
+</head>
+<body>
+<div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
+<a id="back" href="index.html">← アーケードに戻る</a>
+<div id="hud">
+  <div class="title">ABYSS SONAR</div>
+  <div id="depth">DEPTH 1</div>
+  <div id="pearls">真珠 0 / 3</div>
+  <div class="sp"></div>
+  <div id="clock">0:00</div>
+</div>
+<canvas id="cv" width="960" height="600"></canvas>
+<div class="keys">WASD/矢印:泳ぐ　SPACE/クリック:ソナー発信　ESC:深度選択へ戻る　……だが、音は「アレ」にも届く</div>
+<div id="tc">
+  <div class="tc-dpad">
+    <div></div><button class="tc-btn" id="tcUp">▲</button><div></div>
+    <button class="tc-btn" id="tcLeft">◀</button><div></div><button class="tc-btn" id="tcRight">▶</button>
+    <div></div><button class="tc-btn" id="tcDown">▼</button><div></div>
+  </div>
+  <button class="tc-btn" id="tcPing">PING</button>
+  <div class="tc-misc">
+    <button class="tc-btn" id="tcEsc">≡</button>
+  </div>
+</div>
+<script>
+"use strict";
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+const W=cv.width,H=cv.height,TS=24,GW=40,GH=25;
+const depthEl=document.getElementById("depth"),pearlEl=document.getElementById("pearls"),clockEl=document.getElementById("clock");
+
+/* ---------- 乱数(シード付き) ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+/* ---------- サウンド ---------- */
+let AC=null,droneStarted=false;
+function ac(){if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();return AC;}
+function startDrone(){
+  if(droneStarted)return; droneStarted=true;
+  try{
+    const a=ac();
+    const o=a.createOscillator(),g=a.createGain();
+    o.type="sine";o.frequency.value=52;g.gain.value=0.018;
+    o.connect(g);g.connect(a.destination);o.start();
+    const o2=a.createOscillator(),g2=a.createGain();
+    o2.type="sine";o2.frequency.value=78;g2.gain.value=0.008;
+    o2.connect(g2);g2.connect(a.destination);o2.start();
+  }catch(e){}
+}
+function tone(f0,f1,dur,type,vol,delay=0){
+  try{
+    const a=ac(),o=a.createOscillator(),g=a.createGain(),t=a.currentTime+delay;
+    o.type=type;o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+dur);
+  }catch(e){}
+}
+const sfx={
+  ping(){tone(1400,320,0.9,"sine",0.09);tone(1400,320,0.5,"sine",0.04,0.25);},
+  pearl(){[1046,1318,1568].forEach((f,i)=>tone(f,f,0.3,"triangle",0.07,i*0.09));},
+  growl(){tone(90,45,0.9,"sawtooth",0.12);tone(60,38,1.1,"square",0.07);},
+  thump(d){tone(65,40,0.12,"sine",0.16);},
+  die(){tone(400,35,1.2,"sawtooth",0.22);tone(200,30,1.4,"square",0.14,0.05);},
+  unlock(){[523,659,784,1046,1318].forEach((f,i)=>tone(f,f,0.35,"sine",0.06,i*0.1));},
+  win(){[392,523,659,784,1046].forEach((f,i)=>tone(f,f,0.4,"triangle",0.08,i*0.15));}
+};
+
+/* ---------- 深度設定 ---------- */
+const DEPTHS=[
+  {name:"DEPTH 1 『薄明帯』", seed:1108, predators:1, pSpeed:1.0},
+  {name:"DEPTH 2 『漸深帯』", seed:2417, predators:1, pSpeed:1.35},
+  {name:"DEPTH 3 『超深淵』", seed:3390, predators:2, pSpeed:1.45},
+  {name:"DEPTH 4 『冥き平原』", seed:4501, predators:2, pSpeed:1.6, fade:0.008},
+  {name:"DEPTH 5 『原初の海溝』", seed:5230, predators:3, pSpeed:1.65, fade:0.009, pingCd:70},
+];
+let PING_CD=45, FADE=0.0055;
+
+/* ---------- マップ生成 ---------- */
+let grid=[],reveal=[],spawnCell=null,pearls=[],exitCell=null,depthIdx=0;
+function inB(c,r){return c>0&&c<GW-1&&r>0&&r<GH-1;}
+function genMap(seed){
+  const rnd=mulberry32(seed);
+  grid=Array.from({length:GH},()=>new Array(GW).fill(1));
+  reveal=Array.from({length:GH},()=>new Array(GW).fill(0));
+  let c=GW>>1,r=GH>>1,carved=0,dir=0;
+  const target=GW*GH*0.42;
+  let guard=0;
+  while(carved<target&&guard++<60000){
+    for(let dc=0;dc<2;dc++)for(let dr=0;dr<2;dr++){
+      const cc=c+dc,rr=r+dr;
+      if(inB(cc,rr)&&grid[rr][cc]===1){grid[rr][cc]=0;carved++;}
+    }
+    if(rnd()<0.32)dir=Math.floor(rnd()*4);
+    c+=[1,-1,0,0][dir]; r+=[0,0,1,-1][dir];
+    c=Math.max(1,Math.min(GW-3,c)); r=Math.max(1,Math.min(GH-3,r));
+  }
+  // BFS距離(中心から)
+  const dist=bfs(GW>>1,GH>>1);
+  spawnCell=[GW>>1,GH>>1];
+  // 遠い順に候補を集めて、互いに離れた3つの真珠+出口+捕食者位置
+  const far=[];
+  for(let rr=1;rr<GH-1;rr++)for(let cc=1;cc<GW-1;cc++)
+    if(grid[rr][cc]===0&&dist[rr][cc]<1e8)far.push({c:cc,r:rr,d:dist[rr][cc]});
+  far.sort((a,b)=>b.d-a.d);
+  const picked=[];
+  for(const f of far){
+    if(picked.length>=4)break;
+    if(picked.every(p=>Math.hypot(p.c-f.c,p.r-f.r)>11))picked.push(f);
+  }
+  pearls=picked.slice(0,3).map(p=>({x:p.c*TS+TS/2,y:p.r*TS+TS/2,got:false,rev:0,pulse:Math.floor(rnd()*240)}));
+  const ex=picked[3]||far[Math.floor(far.length/2)];
+  exitCell={x:ex.c*TS+TS/2,y:ex.r*TS+TS/2,rev:0};
+  return dist;
+}
+function bfs(sc,sr){
+  const d=Array.from({length:GH},()=>new Array(GW).fill(1e9));
+  const q=[[sc,sr]];d[sr][sc]=0;
+  while(q.length){
+    const [c,r]=q.shift();
+    for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const nc=c+dc,nr=r+dr;
+      if(nc<0||nc>=GW||nr<0||nr>=GH||grid[nr][nc]===1||d[nr][nc]<1e8)continue;
+      d[nr][nc]=d[r][c]+1;q.push([nc,nr]);
+    }
+  }
+  return d;
+}
+function isWall(c,r){if(c<0||c>=GW||r<0||r>=GH)return true;return grid[r][c]===1;}
+
+/* ---------- プレイヤー・捕食者 ---------- */
+const P={x:0,y:0,vx:0,vy:0,r:7,ang:0};
+let preds=[],pings=[],pingCd=0,pingCount=0,timeFrames=0;
+let state="intro",deathT=0,heartT=0,winT=0;
+let selDepth=0, reached=Math.min(DEPTHS.length-1, +(localStorage.getItem("abyss_reached")||0));
+
+class Pred{
+  constructor(c,r,spd){
+    this.x=c*TS+TS/2;this.y=r*TS+TS/2;
+    this.vx=0;this.vy=0;this.spd=spd;
+    this.state="wander";this.timer=0;this.tx=this.x;this.ty=this.y;
+    this.trail=[];this.rev=0;this.flow=null;this.flowT=0;
+    this.growled=false;
+  }
+  setTarget(x,y,st){
+    this.tx=x;this.ty=y;this.state=st;this.timer=st==="investigate"?300:60;
+    this.flowT=0;
+  }
+  update(){
+    const dp=Math.hypot(P.x-this.x,P.y-this.y);
+    // プレイヤーが近い or 高速移動で騒がしい → 直接追跡
+    const noisy=Math.hypot(P.vx,P.vy)>2.2;
+    if(dp<150||(noisy&&dp<260)){
+      if(this.state!=="hunt"&&!this.growled){sfx.growl();this.growled=true;setTimeout(()=>this.growled=false,3000);}
+      this.setTarget(P.x,P.y,"hunt");
+    }
+    if(this.state==="hunt")this.setTarget(P.x,P.y,"hunt");
+    if(this.state!=="wander"){
+      this.timer--;
+      if(this.timer<=0)this.state="wander";
+    }
+    if(this.state==="wander"&&Math.hypot(this.tx-this.x,this.ty-this.y)<30){
+      // 新しい徘徊先
+      for(let i=0;i<40;i++){
+        const c=1+Math.floor(Math.random()*(GW-2)),r=1+Math.floor(Math.random()*(GH-2));
+        if(grid[r][c]===0){this.tx=c*TS+TS/2;this.ty=r*TS+TS/2;break;}
+      }
+    }
+    // フローフィールド追従(壁にハマらない)
+    this.flowT--;
+    if(this.flowT<=0){
+      this.flow=bfs(Math.max(0,Math.min(GW-1,Math.floor(this.tx/TS))),Math.max(0,Math.min(GH-1,Math.floor(this.ty/TS))));
+      this.flowT=25;
+    }
+    const c=Math.floor(this.x/TS),r=Math.floor(this.y/TS);
+    let best=null,bd=this.flow&&this.flow[r]?this.flow[r][c]:1e9;
+    for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const nc=c+dc,nr=r+dr;
+      if(nc<0||nc>=GW||nr<0||nr>=GH||grid[nr][nc]===1)continue;
+      const v=this.flow?this.flow[nr][nc]:1e9;
+      if(v<bd){bd=v;best=[nc,nr];}
+    }
+    const sp=(this.state==="hunt"?2.6:this.state==="investigate"?2.1:0.8)*this.spd;
+    let dx,dy;
+    if(best){dx=best[0]*TS+TS/2-this.x;dy=best[1]*TS+TS/2-this.y;}
+    else{dx=this.tx-this.x;dy=this.ty-this.y;}
+    const l=Math.hypot(dx,dy)||1;
+    this.vx+=(dx/l*sp-this.vx)*0.08;
+    this.vy+=(dy/l*sp-this.vy)*0.08;
+    this.x+=this.vx;this.y+=this.vy;
+    this.trail.unshift({x:this.x,y:this.y});
+    if(this.trail.length>26)this.trail.pop();
+    if(this.rev>0)this.rev-=0.006;
+    // 捕食
+    if(dp<16&&state==="play")die();
+  }
+  draw(){
+    const dp=Math.hypot(P.x-this.x,P.y-this.y);
+    const nearGlow=Math.max(0,1-dp/230)*0.5;
+    const a=Math.max(this.rev,nearGlow);
+    if(a>0.02){
+      for(let i=0;i<this.trail.length;i+=2){
+        const t=this.trail[i],rr=10*(1-i/this.trail.length)+2;
+        ctx.fillStyle=`rgba(200,40,70,${a*(1-i/this.trail.length)*0.8})`;
+        ctx.beginPath();ctx.arc(t.x,t.y,rr,0,7);ctx.fill();
+      }
+    }
+    // 目だけは闇に浮かぶ
+    if(dp<300){
+      const ea=Math.max(0.25,a);
+      const ang=Math.atan2(P.y-this.y,P.x-this.x);
+      ctx.save();ctx.shadowColor="#ff2040";ctx.shadowBlur=8;
+      ctx.fillStyle=`rgba(255,30,60,${ea})`;
+      ctx.beginPath();ctx.arc(this.x+Math.cos(ang+0.5)*5,this.y+Math.sin(ang+0.5)*5,2.4,0,7);ctx.fill();
+      ctx.beginPath();ctx.arc(this.x+Math.cos(ang-0.5)*5,this.y+Math.sin(ang-0.5)*5,2.4,0,7);ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+function startDepth(idx){
+  depthIdx=idx;
+  const cfg=DEPTHS[idx];
+  const dist=genMap(cfg.seed);
+  P.x=spawnCell[0]*TS+TS/2;P.y=spawnCell[1]*TS+TS/2;P.vx=0;P.vy=0;
+  // 捕食者はスタートから遠い場所に
+  preds=[];
+  const cand=[];
+  for(let r=1;r<GH-1;r++)for(let c=1;c<GW-1;c++)
+    if(grid[r][c]===0&&dist[r][c]>18&&dist[r][c]<1e8)cand.push([c,r]);
+  const rnd=mulberry32(cfg.seed*7+1);
+  for(let i=0;i<cfg.predators;i++){
+    const p=cand[Math.floor(rnd()*cand.length)]||[GW-3,GH-3];
+    preds.push(new Pred(p[0],p[1],cfg.pSpeed));
+  }
+  pings=[];pingCd=0;pingCount=0;timeFrames=0;
+  PING_CD=cfg.pingCd||45; FADE=cfg.fade||0.0055;
+  depthEl.textContent=cfg.name;
+  state="play";
+}
+function die(){
+  sfx.die();deathT=90;state="dead";
+}
+function pearlsGot(){return pearls.filter(p=>p.got).length;}
+
+function doPing(x,y){
+  if(pingCd>0)return;
+  pings.push({x,y,r:6});
+  pingCd=PING_CD;pingCount++;
+  sfx.ping();
+  // 音はすべての獣に届く
+  for(const pd of preds)if(pd.state!=="hunt")pd.setTarget(x,y,"investigate");
+}
+
+/* ---------- 入力 ---------- */
+const keys={};
+addEventListener("keydown",e=>{
+  if([" ","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key))e.preventDefault();
+  keys[e.key.toLowerCase()]=true;
+  ac();if(AC&&AC.state==="suspended")AC.resume();startDrone();
+  if(state==="intro"){
+    if(e.key==="ArrowLeft"||e.key==="ArrowUp"){selDepth=Math.max(0,selDepth-1);tone(600,500,0.05,"sine",0.05);}
+    else if(e.key==="ArrowRight"||e.key==="ArrowDown"){selDepth=Math.min(reached,selDepth+1);tone(500,600,0.05,"sine",0.05);}
+    else if(e.key==="Enter"||e.key===" ")startDepth(selDepth);
+    else if(e.key>="1"&&e.key<="5"&&+e.key-1<=reached)startDepth(+e.key-1);
+  }
+  else if(state==="dead"&&e.key==="Enter"&&deathT<=0)startDepth(depthIdx);
+  else if(state==="dead"&&e.key==="Escape"&&deathT<=0){selDepth=depthIdx;state="intro";}
+  else if(state==="clear"&&e.key==="Enter")startDepth(depthIdx+1);
+  else if(state==="clear"&&e.key==="Escape"){selDepth=Math.min(reached,depthIdx+1);state="intro";}
+  else if(state==="allclear"&&e.key==="Enter")state="intro";
+  else if(state==="play"){
+    if(e.key===" ")doPing(P.x,P.y);
+    else if(e.key==="Escape"){selDepth=depthIdx;state="intro";}
+  }
+});
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+cv.addEventListener("pointerdown",e=>{
+  ac();if(AC&&AC.state==="suspended")AC.resume();startDrone();
+  if(state==="intro"){
+    const rc=cv.getBoundingClientRect();
+    const my=(e.clientY-rc.top)*(H/rc.height);
+    const idx=Math.round((my-372)/26);
+    if(idx>=0&&idx<DEPTHS.length&&idx<=reached){ startDepth(idx); return; }
+    startDepth(selDepth);
+  }
+  else if(state==="dead"&&deathT<=0)startDepth(depthIdx);
+  else if(state==="clear")startDepth(depthIdx+1);
+  else if(state==="allclear")state="intro";
+  else if(state==="play")doPing(P.x,P.y);
+});
+
+/* ---------- タッチ操作 ---------- */
+function bindHold(el,keyName){
+  const on=e=>{ e.preventDefault(); keys[keyName]=true; el.classList.add("active");
+    ac(); if(AC&&AC.state==="suspended")AC.resume(); startDrone(); };
+  const off=e=>{ keys[keyName]=false; el.classList.remove("active"); };
+  el.addEventListener("pointerdown",on);
+  el.addEventListener("pointerup",off);
+  el.addEventListener("pointercancel",off);
+  el.addEventListener("pointerleave",off);
+}
+bindHold(document.getElementById("tcLeft"),"arrowleft");
+bindHold(document.getElementById("tcRight"),"arrowright");
+bindHold(document.getElementById("tcUp"),"arrowup");
+bindHold(document.getElementById("tcDown"),"arrowdown");
+document.getElementById("tcPing").addEventListener("pointerdown",e=>{
+  e.preventDefault(); ac(); if(AC&&AC.state==="suspended")AC.resume(); startDrone();
+  if(state==="play") doPing(P.x,P.y);
+});
+document.getElementById("tcEsc").addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  if(state==="play"){ selDepth=depthIdx; state="intro"; }
+  else if(state==="dead"&&deathT<=0){ selDepth=depthIdx; state="intro"; }
+  else if(state==="clear"){ selDepth=Math.min(reached,depthIdx+1); state="intro"; }
+});
+
+/* ---------- 更新 ---------- */
+function update(){
+  if(state==="dead"){if(deathT>0)deathT--;return;}
+  if(state!=="play")return;
+  timeFrames++;
+  const ax=(keys["d"]||keys["arrowright"]?1:0)-(keys["a"]||keys["arrowleft"]?1:0);
+  const ay=(keys["s"]||keys["arrowdown"]?1:0)-(keys["w"]||keys["arrowup"]?1:0);
+  P.vx+=ax*0.22;P.vy+=ay*0.22;
+  P.vx*=0.965;P.vy*=0.965;
+  const spd=Math.hypot(P.vx,P.vy);
+  if(spd>3.4){P.vx*=3.4/spd;P.vy*=3.4/spd;}
+  if(spd>0.3)P.ang=Math.atan2(P.vy,P.vx);
+  // 壁衝突(軸分離)
+  P.x+=P.vx;
+  if(hitWall(P.x,P.y,P.r)){P.x-=P.vx;P.vx=0;}
+  P.y+=P.vy;
+  if(hitWall(P.x,P.y,P.r)){P.y-=P.vy;P.vy=0;}
+
+  if(pingCd>0)pingCd--;
+  // ピング波面 → 壁を照らす
+  pings=pings.filter(pg=>{
+    const pr=pg.r;pg.r+=5.5;
+    const rmax=pg.r,rmin=pr;
+    const cmin=Math.max(0,Math.floor((pg.x-rmax)/TS)),cmax=Math.min(GW-1,Math.ceil((pg.x+rmax)/TS));
+    const rrmin=Math.max(0,Math.floor((pg.y-rmax)/TS)),rrmax=Math.min(GH-1,Math.ceil((pg.y+rmax)/TS));
+    for(let r=rrmin;r<=rrmax;r++)for(let c=cmin;c<=cmax;c++){
+      if(grid[r][c]!==1)continue;
+      const d=Math.hypot(c*TS+TS/2-pg.x,r*TS+TS/2-pg.y);
+      if(d>=rmin&&d<rmax)reveal[r][c]=1;
+    }
+    // エンティティも照らす
+    for(const pl of pearls){
+      const d=Math.hypot(pl.x-pg.x,pl.y-pg.y);
+      if(!pl.got&&d>=rmin&&d<rmax)pl.rev=1;
+    }
+    {const d=Math.hypot(exitCell.x-pg.x,exitCell.y-pg.y);
+     if(d>=rmin&&d<rmax)exitCell.rev=1;}
+    for(const pd of preds){
+      const d=Math.hypot(pd.x-pg.x,pd.y-pg.y);
+      if(d>=rmin&&d<rmax)pd.rev=1;
+    }
+    return pg.r<720;
+  });
+  // 照明フェード
+  for(let r=0;r<GH;r++)for(let c=0;c<GW;c++)if(reveal[r][c]>0)reveal[r][c]-=FADE;
+  for(const pl of pearls)if(pl.rev>0)pl.rev-=0.006;
+  if(exitCell.rev>0)exitCell.rev-=0.006;
+
+  // 真珠
+  for(const pl of pearls){
+    if(pl.got)continue;
+    pl.pulse=(pl.pulse+1)%240;
+    if(Math.hypot(P.x-pl.x,P.y-pl.y)<14){
+      pl.got=true;sfx.pearl();
+      if(pearlsGot()===3)sfx.unlock();
+    }
+  }
+  // 出口
+  if(pearlsGot()===3&&Math.hypot(P.x-exitCell.x,P.y-exitCell.y)<16){
+    sfx.win();
+    reached=Math.max(reached,Math.min(DEPTHS.length-1,depthIdx+1));
+    try{localStorage.setItem("abyss_reached",reached);}catch(e){}
+    state=depthIdx+1<DEPTHS.length?"clear":"allclear";
+    return;
+  }
+  // 捕食者
+  for(const pd of preds)pd.update();
+  // 心音(近いほど速い)
+  const nearest=Math.min(...preds.map(pd=>Math.hypot(pd.x-P.x,pd.y-P.y)));
+  if(nearest<330){
+    heartT--;
+    if(heartT<=0){sfx.thump();heartT=Math.max(14,nearest/330*60);}
+  }
+}
+function hitWall(x,y,r){
+  const c0=Math.floor((x-r)/TS),c1=Math.floor((x+r)/TS);
+  const r0=Math.floor((y-r)/TS),r1=Math.floor((y+r)/TS);
+  for(let rr=r0;rr<=r1;rr++)for(let cc=c0;cc<=c1;cc++)if(isWall(cc,rr))return true;
+  return false;
+}
+
+/* ---------- 描画 ---------- */
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  if(state==="intro"){drawIntro();return;}
+  if(state==="allclear"){drawEnd("生 還","深淵は、君の音を覚えているだろう。","ENTER でタイトルへ");return;}
+  if(state==="clear"){drawEnd("浮上成功","だが海は、まだ深い。","ENTER でさらに深く潜る");return;}
+
+  // 壁の輪郭(照らされた部分だけ)
+  ctx.lineWidth=1.6;
+  for(let r=0;r<GH;r++)for(let c=0;c<GW;c++){
+    if(grid[r][c]!==1)continue;
+    const d=Math.hypot(c*TS+TS/2-P.x,r*TS+TS/2-P.y);
+    const near=Math.max(0,1-d/95)*0.4;
+    const a=Math.max(reveal[r][c],near);
+    if(a<=0.02)continue;
+    const x=c*TS,y=r*TS;
+    ctx.strokeStyle=`rgba(56,232,200,${a*0.9})`;
+    ctx.beginPath();
+    if(!isWall(c,r-1)){ctx.moveTo(x,y);ctx.lineTo(x+TS,y);}
+    if(!isWall(c,r+1)){ctx.moveTo(x,y+TS);ctx.lineTo(x+TS,y+TS);}
+    if(!isWall(c-1,r)){ctx.moveTo(x,y);ctx.lineTo(x,y+TS);}
+    if(!isWall(c+1,r)){ctx.moveTo(x+TS,y);ctx.lineTo(x+TS,y+TS);}
+    ctx.stroke();
+    if(a>0.25){
+      ctx.fillStyle=`rgba(20,90,80,${(a-0.25)*0.25})`;
+      ctx.fillRect(x,y,TS,TS);
+    }
+  }
+  // ピング波面
+  for(const pg of pings){
+    ctx.strokeStyle=`rgba(120,255,230,${Math.max(0,1-pg.r/720)*0.5})`;
+    ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(pg.x,pg.y,pg.r,0,7);ctx.stroke();
+  }
+  // 真珠
+  for(const pl of pearls){
+    if(pl.got)continue;
+    // 定期的な微かな脈動リング(ヒント)
+    if(pl.pulse<60){
+      const pr=pl.pulse/60;
+      ctx.strokeStyle=`rgba(255,210,250,${(1-pr)*0.35})`;
+      ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(pl.x,pl.y,6+pr*46,0,7);ctx.stroke();
+    }
+    const d=Math.hypot(P.x-pl.x,P.y-pl.y);
+    const a=Math.max(pl.rev,Math.max(0,1-d/110));
+    if(a>0.03){
+      ctx.save();ctx.shadowColor="#ffd9fa";ctx.shadowBlur=14;
+      ctx.fillStyle=`rgba(255,220,250,${a})`;
+      ctx.beginPath();ctx.arc(pl.x,pl.y,5.5,0,7);ctx.fill();ctx.restore();
+    }
+  }
+  // 出口
+  {
+    const t=performance.now()/1000;
+    const open=pearlsGot()===3;
+    const d=Math.hypot(P.x-exitCell.x,P.y-exitCell.y);
+    const a=Math.max(exitCell.rev,Math.max(0,1-d/130),open?0.25+0.2*Math.sin(t*3):0);
+    if(a>0.03){
+      ctx.save();
+      ctx.shadowColor=open?"#7dffb0":"#557";ctx.shadowBlur=18;
+      ctx.strokeStyle=open?`rgba(125,255,176,${a})`:`rgba(120,120,160,${a})`;
+      ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.arc(exitCell.x,exitCell.y,11+2*Math.sin(t*4),0,7);ctx.stroke();
+      ctx.beginPath();ctx.arc(exitCell.x,exitCell.y,5,0,7);ctx.stroke();
+      if(!open){
+        ctx.fillStyle=`rgba(200,200,255,${a*0.9})`;ctx.font="10px sans-serif";ctx.textAlign="center";
+        ctx.fillText("真珠×3 が必要",exitCell.x,exitCell.y-20);
+      }
+      ctx.restore();
+    }
+  }
+  // 捕食者
+  for(const pd of preds)pd.draw();
+  // 自機(小さな潜航艇)
+  ctx.save();
+  ctx.translate(P.x,P.y);ctx.rotate(P.ang);
+  ctx.shadowColor="#9fe8dd";ctx.shadowBlur=10;
+  ctx.fillStyle="#c8fff4";
+  ctx.beginPath();ctx.moveTo(9,0);ctx.lineTo(-7,-5.5);ctx.lineTo(-4,0);ctx.lineTo(-7,5.5);ctx.closePath();ctx.fill();
+  ctx.restore();
+  // ピングクールダウン
+  if(pingCd>0){
+    ctx.strokeStyle="rgba(120,255,230,0.25)";
+    ctx.beginPath();ctx.arc(P.x,P.y,13,-Math.PI/2,-Math.PI/2+(1-pingCd/PING_CD)*6.283);ctx.stroke();
+  }
+  // HUD
+  pearlEl.textContent=`真珠 ${pearlsGot()} / 3`;
+  const s=Math.floor(timeFrames/60);
+  clockEl.textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}　ping×${pingCount}`;
+
+  if(state==="dead"){
+    ctx.fillStyle=`rgba(120,0,10,${deathT>60?(90-deathT)/30*0.6:0.6})`;
+    ctx.fillRect(0,0,W,H);
+    ctx.textAlign="center";
+    ctx.fillStyle="#ff8090";ctx.font="bold 40px sans-serif";
+    ctx.fillText("捕 食 さ れ た",W/2,H/2-16);
+    if(deathT<=0){
+      ctx.font="15px sans-serif";ctx.fillStyle="#ffb8c0";
+      ctx.fillText("ENTER で再挑戦",W/2,H/2+30);
+    }
+  }
+}
+function drawIntro(){
+  const t=performance.now()/1000;
+  ctx.textAlign="center";
+  ctx.save();ctx.shadowColor="#38e8c8";ctx.shadowBlur=25;
+  ctx.fillStyle="#38e8c8";ctx.font="bold 52px sans-serif";
+  ctx.fillText("ABYSS SONAR",W/2,170);ctx.restore();
+  ctx.fillStyle="#9fe8dd";ctx.font="17px sans-serif";
+  ctx.fillText("ここは光の届かない深海。見えるのは、音の反響だけ。",W/2,230);
+  ctx.fillText("ソナーを撃てば世界が一瞬だけ姿を現す——だがその音は、",W/2,258);
+  ctx.fillStyle="#ff8090";
+  ctx.fillText("『アレ』にも届いている。",W/2,286);
+  ctx.fillStyle="#ffd9fa";ctx.font="14px sans-serif";
+  ctx.fillText("真珠を3つ集め、ハッチから浮上せよ。深く潜るほど、音は早く闇に呑まれる。",W/2,330);
+  // 深度セレクト
+  DEPTHS.forEach((d,i)=>{
+    const y=372+i*26, locked=i>reached, on=i===selDepth;
+    ctx.font=(on?"bold ":"")+"15px sans-serif";
+    ctx.fillStyle=locked?"rgba(120,140,150,0.35)":(on?"#7dffb0":"#9fe8dd");
+    ctx.fillText(`${on?"▶ ":"　"}${d.name}${locked?" 🔒":""}${on?" ◀":"　"}`,W/2,y);
+  });
+  ctx.fillStyle="#5a8";ctx.font="12px sans-serif";
+  ctx.fillText("←→で深度選択",W/2,372+DEPTHS.length*26+6);
+  if(Math.sin(t*4)>0){
+    ctx.fillStyle="#fff";ctx.font="bold 17px sans-serif";
+    ctx.fillText("― ENTER / クリック で潜水開始 ―",W/2,560);
+  }
+  // 波紋デモ
+  const r=(t*90)%300;
+  ctx.strokeStyle=`rgba(56,232,200,${Math.max(0,1-r/300)*0.4})`;
+  ctx.lineWidth=2;ctx.beginPath();ctx.arc(W/2,480,r,0,7);ctx.stroke();
+}
+function drawEnd(big,sub,next){
+  const t=performance.now()/1000;
+  ctx.textAlign="center";
+  ctx.save();ctx.shadowColor="#7dffb0";ctx.shadowBlur=25;
+  ctx.fillStyle="#7dffb0";ctx.font="bold 50px sans-serif";
+  ctx.fillText(big,W/2,220);ctx.restore();
+  ctx.fillStyle="#9fe8dd";ctx.font="17px sans-serif";
+  ctx.fillText(sub,W/2,280);
+  const s=Math.floor(timeFrames/60);
+  ctx.fillText(`タイム ${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}　使用ping ${pingCount}回`,W/2,320);
+  if(Math.sin(t*4)>0){
+    ctx.fillStyle="#fff";ctx.font="bold 18px sans-serif";
+    ctx.fillText("― "+next+" ―",W/2,400);
+  }
+}
+
+let last=performance.now(),acc=0;
+function tick(now){
+  acc+=Math.min(now-last,100);last=now;
+  while(acc>=1000/60){update();acc-=1000/60;}
+  draw();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
