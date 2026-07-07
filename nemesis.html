@@ -8,6 +8,7 @@
   html,body{margin:0;padding:0;background:#050508;font-family:"Segoe UI",system-ui,sans-serif;color:#e8e8f0;
     display:flex;flex-direction:column;align-items:center;min-height:100vh;user-select:none;overscroll-behavior:none;
     -webkit-tap-highlight-color:transparent;}
+  .stage{display:flex;flex-direction:column;align-items:center;width:100%;}
   .cv-wrap{position:relative;display:inline-block;margin-top:10px;}
   canvas{background:#08080e;border-radius:8px;box-shadow:0 0 50px rgba(255,40,70,.25);max-width:96vw;max-height:62vh;cursor:crosshair;touch-action:none;display:block;}
   #back{position:fixed;top:10px;left:12px;font-size:12px;color:#888;opacity:.6;text-decoration:none;z-index:5;}
@@ -16,47 +17,59 @@
   #rotatePrompt{display:none;position:fixed;inset:0;background:#050508;color:#e8e8f0;z-index:999;
     align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
   @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
-  #tc{display:none;width:960px;max-width:96vw;flex-direction:column;align-items:center;gap:8px;padding:6px 4px;box-sizing:border-box;}
+  .side-ctrl{display:none;}
   @media (pointer:coarse){
-    #tc{display:flex;} .keys{display:none;}
-    .cv-wrap{margin-top:2px;}
+    .keys{display:none;}
+    .stage{flex-direction:row;justify-content:center;align-items:center;gap:0;}
+    .cv-wrap{margin-top:0;}
     canvas{max-height:94vh;}
-    #tc{position:absolute;left:0;right:0;bottom:0;z-index:3;width:auto;max-width:none;
-      pointer-events:none;padding:8px 10px calc(8px + env(safe-area-inset-bottom));}
-    #tc>*{pointer-events:none;}
-    #tc button,#tc .tc-hint{pointer-events:auto;}
-    .tc-hint{position:absolute;left:12px;bottom:10px;font-size:9px;opacity:.55;background:none;padding:0;}
-    .tc-row{position:static;}
+    .side-ctrl{display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:14px;flex:0 0 auto;padding:6px;box-sizing:border-box;}
   }
   .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
     user-select:none;touch-action:none;cursor:pointer;outline:none;
     display:flex;align-items:center;justify-content:center;font-weight:700;font-family:inherit;
-    background:rgba(26,20,32,.35);color:rgba(255,159,184,.85);border:2px solid rgba(255,47,109,.4);
-    border-radius:12px;backdrop-filter:blur(1px);}
+    background:rgba(26,20,32,.4);color:rgba(255,159,184,.85);border:2px solid rgba(255,47,109,.4);
+    border-radius:12px;}
   .tc-btn.active{background:rgba(255,47,109,.55);color:#fff;}
   .tc-btn:focus{outline:none;}
-  .tc-row{display:none;gap:16px;align-items:center;width:100%;justify-content:center;}
-  .tc-row.show{display:flex;}
-  .tc-genbtn{width:110px;height:46px;font-size:13px;}
-  .tc-hint{font-size:12px;opacity:.6;}
-  #tcDash{width:78px;height:58px;font-size:13px;margin-left:auto;}
+  .tc-genbtn{width:100px;height:44px;font-size:12px;display:none;}
+  .tc-genbtn.show{display:flex;}
+  #tcDash{width:78px;height:58px;font-size:13px;display:none;}
+  #tcDash.show{display:flex;}
+  .stick-wrap{width:96px;height:96px;touch-action:none;display:none;align-items:center;justify-content:center;}
+  .stick-wrap.show{display:flex;}
+  .stick-base{width:92px;height:92px;border-radius:50%;position:relative;
+    background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.3);}
+  .stick-base.aim{background:rgba(255,47,109,.08);border-color:rgba(255,47,109,.45);}
+  .stick-knob{width:40px;height:40px;border-radius:50%;position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);background:rgba(255,255,255,.5);pointer-events:none;}
+  .stick-knob.aim{background:rgba(255,47,109,.65);}
+  .side-hint{font-size:9px;opacity:.5;text-align:center;line-height:1.3;}
 </style>
 </head>
 <body>
 <div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
 <a id="back" href="index.html">← アーケードに戻る</a>
-<div class="cv-wrap">
-<canvas id="cv" width="960" height="600"></canvas>
-<div id="tc">
-  <div class="tc-row" id="tcGenRow">
+<div class="stage">
+  <div class="side-ctrl side-left">
     <button class="tc-btn tc-genbtn" id="tcGenL">◀ 世代</button>
+    <div class="stick-wrap" id="stickMoveWrap">
+      <div class="stick-base"><div class="stick-knob" id="stickMoveKnob"></div></div>
+    </div>
+    <div class="side-hint" id="hintMove">移動</div>
+  </div>
+  <div class="cv-wrap">
+    <canvas id="cv" width="960" height="600"></canvas>
+  </div>
+  <div class="side-ctrl side-right">
     <button class="tc-btn tc-genbtn" id="tcGenR">世代 ▶</button>
-  </div>
-  <div class="tc-row" id="tcBattleRow">
-    <span class="tc-hint">左側=移動　右側=狙って発射</span>
     <button class="tc-btn" id="tcDash">DASH</button>
+    <div class="stick-wrap" id="stickAimWrap">
+      <div class="stick-base aim"><div class="stick-knob aim" id="stickAimKnob"></div></div>
+    </div>
+    <div class="side-hint" id="hintAim">狙って発射</div>
   </div>
-</div>
 </div>
 <div class="keys">WASD:移動　マウス:照準　クリック長押し:射撃　SPACE/SHIFT:緊急回避(無敵)　タイトルで←→:世代選択(過去世代と再戦可)　N:記憶消去　ESC:撤退</div>
 <script>
@@ -164,60 +177,73 @@ addEventListener("keydown",e=>{
 });
 addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;});
 
-/* ---------- タッチ操作(左=移動スティック、右=照準スティック+発射) ---------- */
-const activePointers=new Map(); // pointerId -> {role,originX,originY,dx,dy}
-let touchAimAngle=-Math.PI/2; // 照準スティックの向き(ドラッグの相対方向。絶対座標には依存しない)
-function cvPos(e){
-  const rc=cv.getBoundingClientRect();
-  return {x:(e.clientX-rc.left)*(W/rc.width), y:(e.clientY-rc.top)*(H/rc.height)};
-}
+/* ---------- タッチ操作:画面外(両脇)に固定されたスティック ---------- */
+// キャンバスへのタップはタイトル/学習画面の進行専用(移動・照準はもう関係しない)
 cv.addEventListener("pointerdown",e=>{
   ac(); if(AC&&AC.state==="suspended")AC.resume();
-  const pos=cvPos(e);
+  const rc=cv.getBoundingClientRect();
+  const pos={x:(e.clientX-rc.left)*(W/rc.width), y:(e.clientY-rc.top)*(H/rc.height)};
   if(state==="title"){ startBattle(); return; }
   if(state==="learn"){ if(learnDone) startBattle(); else learnChar=1e9; return; }
   if(state!=="battle") return;
-  if(e.pointerType==="touch"){
-    if(pos.x<W*0.42){
-      activePointers.set(e.pointerId,{role:"move",originX:pos.x,originY:pos.y,dx:0,dy:0});
-    }else{
-      activePointers.set(e.pointerId,{role:"aim",originX:pos.x,originY:pos.y,dx:0,dy:0});
-      mouse.down=true;
-    }
-  }else{
-    mouse.x=pos.x; mouse.y=pos.y; mouse.down=true;
-  }
+  if(e.pointerType!=="touch"){ mouse.x=pos.x; mouse.y=pos.y; mouse.down=true; }
 });
 cv.addEventListener("pointermove",e=>{
-  const pos=cvPos(e);
-  if(e.pointerType!=="touch"){ mouse.x=pos.x; mouse.y=pos.y; return; }
-  const info=activePointers.get(e.pointerId);
-  if(!info) return;
-  let dx=pos.x-info.originX, dy=pos.y-info.originY;
-  const dist=Math.hypot(dx,dy), max=46;
-  if(dist>max){ dx=dx/dist*max; dy=dy/dist*max; }
-  info.dx=dx; info.dy=dy;
-  if(info.role==="move"){
-    const dead=10;
+  if(e.pointerType==="touch")return;
+  const rc=cv.getBoundingClientRect();
+  mouse.x=(e.clientX-rc.left)*(W/rc.width); mouse.y=(e.clientY-rc.top)*(H/rc.height);
+});
+addEventListener("pointerup",e=>{ if(e.pointerType!=="touch") mouse.down=false; });
+
+// 固定位置ジョイスティック(常に同じ場所にあるので狙いやすい。指がベースの外へ出ても
+// pointer capture で追従し続けるので、広く腕を振って正確に狙える)
+let touchAimAngle=-Math.PI/2, touchMoveActive=false, touchAimActiveFlag=false;
+function makeStick(baseEl,knobEl,{deadzone=8,onChange,onEnd}){
+  let active=false, pid=null;
+  function apply(clientX,clientY){
+    const r=baseEl.getBoundingClientRect();
+    const cx=r.left+r.width/2, cy=r.top+r.height/2;
+    let dx=clientX-cx, dy=clientY-cy;
+    const dist=Math.hypot(dx,dy), maxR=r.width/2-6;
+    if(dist>maxR){ dx=dx/dist*maxR; dy=dy/dist*maxR; }
+    knobEl.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    onChange(dx,dy,dist);
+  }
+  baseEl.addEventListener("pointerdown",e=>{
+    e.preventDefault(); active=true; pid=e.pointerId;
+    try{ baseEl.setPointerCapture(pid); }catch(err){}
+    ac(); if(AC&&AC.state==="suspended")AC.resume();
+    apply(e.clientX,e.clientY);
+  });
+  baseEl.addEventListener("pointermove",e=>{
+    if(!active||e.pointerId!==pid)return;
+    apply(e.clientX,e.clientY);
+  });
+  const end=e=>{
+    if(!active||(e.pointerId!==undefined&&e.pointerId!==pid))return;
+    active=false; pid=null;
+    knobEl.style.transform="translate(-50%,-50%)";
+    onEnd();
+  };
+  baseEl.addEventListener("pointerup",end);
+  baseEl.addEventListener("pointercancel",end);
+}
+makeStick(document.getElementById("stickMoveWrap"),document.getElementById("stickMoveKnob"),{
+  onChange(dx,dy,dist){
+    touchMoveActive=true;
+    const dead=8;
     keys["a"]=dx<-dead; keys["d"]=dx>dead;
     keys["w"]=dy<-dead; keys["s"]=dy>dead;
-  }else{
-    // 照準はドラッグの「相対方向」で決める(タッチ位置そのものではない)。
-    // これによりプレイヤーがどこにいても、左にも右にも自在に狙える。
-    if(dist>8) touchAimAngle=Math.atan2(dy,dx);
-  }
+  },
+  onEnd(){ touchMoveActive=false; keys["a"]=keys["d"]=keys["w"]=keys["s"]=false; }
 });
-function releasePointer(e){
-  const info=activePointers.get(e.pointerId);
-  if(info){
-    if(info.role==="move"){ keys["a"]=keys["d"]=keys["w"]=keys["s"]=false; }
-    else if(info.role==="aim"){ mouse.down=false; }
-    activePointers.delete(e.pointerId);
-  }else if(e.pointerType!=="touch"){ mouse.down=false; }
-}
-cv.addEventListener("pointerup",releasePointer);
-cv.addEventListener("pointercancel",releasePointer);
-cv.addEventListener("pointerleave",e=>{ if(e.pointerType==="touch") releasePointer(e); });
+makeStick(document.getElementById("stickAimWrap"),document.getElementById("stickAimKnob"),{
+  onChange(dx,dy,dist){
+    touchAimActiveFlag=true; mouse.down=true;
+    if(dist>8) touchAimAngle=Math.atan2(dy,dx);
+  },
+  onEnd(){ touchAimActiveFlag=false; mouse.down=false; }
+});
 
 const tcGenL=document.getElementById("tcGenL"), tcGenR=document.getElementById("tcGenR");
 tcGenL.addEventListener("pointerdown",e=>{
@@ -302,11 +328,9 @@ function update(){
   battleFrames++;
 
   // タッチ照準中は、常に現在のプレイヤー位置+ドラッグ方向で仮想マウス位置を再計算する
-  for(const [,info] of activePointers){
-    if(info.role==="aim"){
-      mouse.x=player.x+Math.cos(touchAimAngle)*100;
-      mouse.y=player.y+Math.sin(touchAimAngle)*100;
-    }
+  if(touchAimActiveFlag){
+    mouse.x=player.x+Math.cos(touchAimAngle)*100;
+    mouse.y=player.y+Math.sin(touchAimAngle)*100;
   }
 
   /* --- プレイヤー --- */
@@ -554,12 +578,19 @@ function drawBossBody(){
   }
   ctx.restore();
 }
-const tcGenRow=document.getElementById("tcGenRow"), tcBattleRow=document.getElementById("tcBattleRow");
+const tcGenLEl=document.getElementById("tcGenL"), tcGenREl=document.getElementById("tcGenR");
+const stickMoveWrap=document.getElementById("stickMoveWrap"), stickAimWrap=document.getElementById("stickAimWrap");
+const hintMoveEl=document.getElementById("hintMove"), hintAimEl=document.getElementById("hintAim");
 function draw(){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,W,H);
-  tcGenRow.classList.toggle("show",state==="title");
-  tcBattleRow.classList.toggle("show",state==="battle");
+  tcGenLEl.classList.toggle("show",state==="title");
+  tcGenREl.classList.toggle("show",state==="title");
+  tcDash.classList.toggle("show",state==="battle");
+  stickMoveWrap.classList.toggle("show",state==="battle");
+  stickAimWrap.classList.toggle("show",state==="battle");
+  hintMoveEl.style.display=state==="battle"?"block":"none";
+  hintAimEl.style.display=state==="battle"?"block":"none";
   if(state==="title"){drawTitle();return;}
   if(state==="learn"){drawLearn();return;}
   if(shake>0)ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
@@ -647,16 +678,6 @@ function draw(){
   ctx.fillStyle="#4df0ff";
   ctx.beginPath();ctx.arc(player.x+Math.cos(aim)*8,player.y+Math.sin(aim)*8,3.5,0,7);ctx.fill();
   ctx.restore();
-  // タッチ操作スティックの可視化(移動=白、照準=赤)
-  for(const [,info] of activePointers){
-    const col=info.role==="aim"?"255,47,109":"255,255,255";
-    ctx.save();
-    ctx.strokeStyle=`rgba(${col},0.35)`; ctx.lineWidth=2;
-    ctx.beginPath();ctx.arc(info.originX,info.originY,46,0,7);ctx.stroke();
-    ctx.fillStyle=`rgba(${col},0.55)`;
-    ctx.beginPath();ctx.arc(info.originX+info.dx,info.originY+info.dy,18,0,7);ctx.fill();
-    ctx.restore();
-  }
   // HUD
   ctx.setTransform(1,0,0,1,0,0);
   // ボスHP

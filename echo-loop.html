@@ -15,6 +15,7 @@
   #timerBar{height:100%;width:100%;background:#ff5a5f;transition:none;border-radius:5px;}
   #ghosts{font-size:13px;opacity:.8;min-width:110px;text-align:right;}
   #hint{width:960px;max-width:96vw;font-size:13px;line-height:1.5;padding:4px 4px 8px;box-sizing:border-box;opacity:.85;min-height:2.6em;}
+  .stage{display:flex;flex-direction:column;align-items:center;width:100%;}
   .cv-wrap{position:relative;display:inline-block;}
   canvas{background:#f6f3ea;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.12);max-width:96vw;max-height:60vh;touch-action:none;display:block;}
   #back{position:fixed;top:10px;left:12px;font-size:12px;color:#2b2b2b;opacity:.5;text-decoration:none;}
@@ -23,10 +24,13 @@
   #rotatePrompt{display:none;position:fixed;inset:0;background:#1a1814;color:#f2e9d8;z-index:999;
     align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px;flex-direction:column;gap:14px;}
   @media (pointer:coarse) and (orientation:portrait){ #rotatePrompt{display:flex;} }
-  #tc{display:none;width:960px;max-width:96vw;justify-content:space-between;align-items:center;gap:10px;padding:6px 4px 2px;box-sizing:border-box;}
+  .side-ctrl{display:none;}
   @media (pointer:coarse){
-    #tc{display:flex;} .keys{display:none;}
-    canvas{max-height:94vh;}
+    .keys{display:none;}
+    .stage{flex-direction:row;justify-content:center;align-items:center;gap:6px;}
+    canvas{max-height:90vh;}
+    .side-ctrl{display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:14px;flex:0 0 auto;padding:4px;box-sizing:border-box;}
     #hud{position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;width:auto;
       gap:8px;padding:3px 8px;font-size:9px;border-radius:8px 8px 0 0;
       background:linear-gradient(rgba(20,18,15,.32),rgba(20,18,15,0));color:rgba(255,255,255,.8);}
@@ -38,37 +42,26 @@
       font-size:9px;line-height:1.3;padding:1px 8px;box-sizing:border-box;min-height:0;
       background:rgba(20,18,15,.22);color:rgba(255,255,255,.7);opacity:1;font-weight:400;}
     #hint b{font-weight:600;}
-    #tc{position:absolute;left:0;right:0;bottom:0;z-index:3;width:auto;max-width:none;
-      pointer-events:none;padding:8px 10px calc(8px + env(safe-area-inset-bottom));}
-    #tc>*{pointer-events:auto;}
   }
   .tc-btn{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;
     user-select:none;touch-action:none;cursor:pointer;outline:none;
     display:flex;align-items:center;justify-content:center;font-weight:700;font-family:inherit;
-    background:rgba(46,44,40,.32);color:rgba(242,233,216,.85);border:2px solid rgba(0,0,0,.2);
-    border-radius:12px;backdrop-filter:blur(1px);}
-  .tc-btn.active{background:rgba(255,90,95,.55);border-color:rgba(255,90,95,.7);}
+    background:rgba(46,44,40,.4);color:rgba(242,233,216,.85);border:2px solid rgba(0,0,0,.2);
+    border-radius:12px;}
+  .tc-btn.active{background:rgba(255,90,95,.6);border-color:rgba(255,90,95,.7);}
   .tc-btn:focus{outline:none;}
-  .tc-move{display:flex;gap:8px;}
+  .tc-move{display:flex;flex-direction:column;gap:8px;}
   .tc-move .tc-btn{width:58px;height:58px;font-size:22px;}
   .tc-jump{width:78px;height:58px;font-size:14px;}
-  .tc-misc{display:flex;gap:6px;}
+  .tc-misc{display:flex;flex-direction:column;gap:6px;}
   .tc-misc .tc-btn{width:40px;height:40px;font-size:13px;}
 </style>
 </head>
 <body>
 <div id="rotatePrompt">📱↻<br>横向きにしてプレイしてください<br><span style="font-size:13px;opacity:.7">Rotate your device to landscape</span></div>
 <a id="back" href="index.html">← アーケードに戻る</a>
-<div class="cv-wrap">
-  <div id="hud">
-    <div class="title">ECHO LOOP</div>
-    <div class="lv" id="lvLabel">LEVEL 1</div>
-    <div id="timerWrap"><div id="timerBar"></div></div>
-    <div id="ghosts">ゴースト: 0 / 6</div>
-  </div>
-  <div id="hint"></div>
-  <canvas id="cv" width="960" height="544"></canvas>
-  <div id="tc">
+<div class="stage">
+  <div class="side-ctrl side-left">
     <div class="tc-move">
       <button class="tc-btn" id="tcLeft">◀</button>
       <button class="tc-btn" id="tcRight">▶</button>
@@ -76,9 +69,21 @@
     <div class="tc-misc">
       <button class="tc-btn" id="tcR">R</button>
       <button class="tc-btn" id="tcX">X</button>
-      <button class="tc-btn" id="tcEsc">≡</button>
     </div>
+  </div>
+  <div class="cv-wrap">
+    <div id="hud">
+      <div class="title">ECHO LOOP</div>
+      <div class="lv" id="lvLabel">LEVEL 1</div>
+      <div id="timerWrap"><div id="timerBar"></div></div>
+      <div id="ghosts">ゴースト: 0 / 6</div>
+    </div>
+    <div id="hint"></div>
+    <canvas id="cv" width="960" height="544"></canvas>
+  </div>
+  <div class="side-ctrl side-right">
     <button class="tc-btn tc-jump" id="tcJump">JUMP</button>
+    <button class="tc-btn" id="tcEsc">≡</button>
   </div>
 </div>
 <div class="keys">←→/AD:移動　SPACE/W/↑:ジャンプ　R:ループを終えてゴースト化　X:ゴースト全消去　ESC:ステージ選択　ENTER:決定</div>
